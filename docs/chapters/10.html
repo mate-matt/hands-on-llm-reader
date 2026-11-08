@@ -1,0 +1,1033 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="format-detection" content="telephone=no">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#fbf9f6">
+<meta name="description" content="个人笔记本阅读镜像，不是 Hands-On Large Language Models 全书。内容来自 Apache-2.0 开源仓库。">
+<title>第 10 章 · Creating Text Embedding Models</title>
+<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../css/pygments.css">
+<link rel="stylesheet" href="../css/reader.css">
+</head>
+<body data-chapter="10">
+<a class="skip" href="#content">跳到正文</a>
+<header class="topbar">
+  <div class="shell topbar-inner">
+    <a class="brand" href="../index.html">Hands-On LLM 笔记</a>
+    <nav class="chrome" aria-label="阅读导航"><a href="../index.html" >目录</a><a href="09.html" rel="prev">上一章</a><a href="11.html" rel="next">下一章</a><a href="https://colab.research.google.com/github/HandsOnLLM/Hands-On-Large-Language-Models/blob/main/chapter10/Chapter%2010%20-%20Creating%20Text%20Embedding%20Models.ipynb" class="colab">在 Colab 打开</a><button type="button" data-done="10" aria-pressed="false">标为已读</button></nav>
+  </div>
+  <div class="scrollline" aria-hidden="true"><span id="scrollline"></span></div>
+</header>
+<div class="shell page">
+<main id="content">
+<p class="disclaimer"><strong>笔记本镜像，不是全书。</strong> 这是开源笔记仓库的个人阅读页，只收录 Apache-2.0 许可的 Jupyter 笔记本、bonus 简介，以及这些文件里原有的图片。不包括 O’Reilly 书的正文、未随仓库发布的插图或 PDF。 <a href="https://www.amazon.com/Hands-Large-Language-Models-Understanding/dp/1098150961">购买本书</a> · <a href="https://www.oreilly.com/library/view/hands-on-large-language/9781098150952/">O’Reilly</a> · <a href="https://github.com/HandsOnLLM/Hands-On-Large-Language-Models">上游 GitHub</a></p><p class="resume"><a href="#content" id="resume" hidden>回到上次位置</a></p><article class="cell cell-md"><div class="markdown" lang="en"><h1>Chapter 10 - Creating Text Embedding Models</h1>
+<p><i>Exploring methods for both training and fine-tuning embedding models.</i></p>
+<p><a class="text-badge badge-buy" href="https://www.amazon.com/Hands-Large-Language-Models-Understanding/dp/1098150961" target="_blank" rel="noopener noreferrer">Buy the Book</a>
+<a class="text-badge badge-oreilly" href="https://www.oreilly.com/library/view/hands-on-large-language/9781098150952/" target="_blank" rel="noopener noreferrer">O&#x27;Reilly</a>
+<a class="text-badge badge-github" href="https://github.com/HandsOnLLM/Hands-On-Large-Language-Models" target="_blank" rel="noopener noreferrer">GitHub Repository</a>
+<a href="https://colab.research.google.com/github/HandsOnLLM/Hands-On-Large-Language-Models/blob/main/chapter10/Chapter%2010%20-%20Creating%20Text%20Embedding%20Models.ipynb" target="_blank" rel="noopener noreferrer"><img class="inline-badge" alt="Open In Colab" src="../assets/colab-badge.svg"></a></p>
+<hr>
+<p>This notebook is for Chapter 10 of the <a href="https://www.amazon.com/Hands-Large-Language-Models-Understanding/dp/1098150961" target="_blank" rel="noopener noreferrer">Hands-On Large Language Models</a> book by <a href="https://www.linkedin.com/in/jalammar" target="_blank" rel="noopener noreferrer">Jay Alammar</a> and <a href="https://www.linkedin.com/in/mgrootendorst/" target="_blank" rel="noopener noreferrer">Maarten Grootendorst</a>.</p>
+<hr>
+<p><a href="https://www.amazon.com/Hands-Large-Language-Models-Understanding/dp/1098150961" target="_blank" rel="noopener noreferrer">
+<img class="figure" src="../images/book_cover.png" width="350" alt="Hands-On Large Language Models book cover"></a></p></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h3>[OPTIONAL] - Installing Packages on <img class="inline-badge" src="../assets/colab-icon.png" width=100 alt="Google Colab"></h3>
+<p>If you are viewing this notebook on Google Colab (or any other cloud vendor), you need to <strong>uncomment and run</strong> the following codeblock to install the dependencies for this chapter:</p>
+<hr>
+<p>💡 <strong>NOTE</strong>: We will want to use a GPU to run the examples in this notebook. In Google Colab, go to
+<strong>Runtime &gt; Change runtime type &gt; Hardware accelerator &gt; GPU &gt; GPU type &gt; T4</strong>.</p>
+<hr></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># %%capture</span>
+<span class="c1"># !pip install -q accelerate&gt;=0.27.2 peft&gt;=0.9.0 bitsandbytes&gt;=0.43.0 transformers&gt;=4.38.2 trl&gt;=0.7.11 sentencepiece&gt;=0.1.99</span>
+<span class="c1"># !pip install -q sentence-transformers&gt;=3.0.0 mteb&gt;=1.1.2 datasets&gt;=2.18.0</span>
+</pre></div>
+</article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h1>Creating an Embedding Model</h1></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h2><strong>Data</strong></h2></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">datasets</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_dataset</span>
+
+<span class="c1"># Load MNLI dataset from GLUE</span>
+<span class="c1"># 0 = entailment, 1 = neutral, 2 = contradiction</span>
+<span class="n">train_dataset</span> <span class="o">=</span> <span class="n">load_dataset</span><span class="p">(</span><span class="s2">"glue"</span><span class="p">,</span> <span class="s2">"mnli"</span><span class="p">,</span> <span class="n">split</span><span class="o">=</span><span class="s2">"train"</span><span class="p">)</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="mi">50_000</span><span class="p">))</span>
+<span class="n">train_dataset</span> <span class="o">=</span> <span class="n">train_dataset</span><span class="o">.</span><span class="n">remove_columns</span><span class="p">(</span><span class="s2">"idx"</span><span class="p">)</span>
+</pre></div>
+<div class="outputs"><details class="log"><summary>运行日志 · /usr/local/lib/python3.10/dist-packages/huggingface_hub/utils/_token.py:89: UserWarning: </summary><pre class="stream stderr">/usr/local/lib/python3.10/dist-packages/huggingface_hub/utils/_token.py:89: UserWarning: 
+The secret `HF_TOKEN` does not exist in your Colab secrets.
+To authenticate with the Hugging Face Hub, create a token in your settings tab (https://huggingface.co/settings/tokens), set it as secret in your Google Colab and restart your session.
+You will be able to reuse this secret in all of your notebooks.
+Please note that authentication is recommended but still optional to access public models or datasets.
+  warnings.warn(
+</pre></details></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="n">train_dataset</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">{&#x27;premise&#x27;: &#x27;One of our number will carry out your instructions minutely.&#x27;,
+ &#x27;hypothesis&#x27;: &#x27;A member of my team will execute your orders with immense precision.&#x27;,
+ &#x27;label&#x27;: 0}</pre></div></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h2><strong>Model</strong></h2></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">sentence_transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">SentenceTransformer</span>
+
+<span class="c1"># Use a base model</span>
+<span class="n">embedding_model</span> <span class="o">=</span> <span class="n">SentenceTransformer</span><span class="p">(</span><span class="s1">'bert-base-uncased'</span><span class="p">)</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stderr">WARNING:sentence_transformers.SentenceTransformer:No sentence-transformers model found with name bert-base-uncased. Creating a new one with mean pooling.
+/usr/local/lib/python3.10/dist-packages/huggingface_hub/file_download.py:1132: FutureWarning: `resume_download` is deprecated and will be removed in version 1.0.0. Downloads always resume when possible. If you want to force a new download, use `force_download=True`.
+  warnings.warn(
+</pre></div></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h2><strong>Loss Function</strong></h2></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">sentence_transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">losses</span>
+
+<span class="c1"># Define the loss function. In soft-max loss, we will also need to explicitly set the number of labels.</span>
+<span class="n">train_loss</span> <span class="o">=</span> <span class="n">losses</span><span class="o">.</span><span class="n">SoftmaxLoss</span><span class="p">(</span>
+    <span class="n">model</span><span class="o">=</span><span class="n">embedding_model</span><span class="p">,</span>
+    <span class="n">sentence_embedding_dimension</span><span class="o">=</span><span class="n">embedding_model</span><span class="o">.</span><span class="n">get_sentence_embedding_dimension</span><span class="p">(),</span>
+    <span class="n">num_labels</span><span class="o">=</span><span class="mi">3</span>
+<span class="p">)</span>
+</pre></div>
+</article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h2>Evaluation</h2></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">sentence_transformers.evaluation</span><span class="w"> </span><span class="kn">import</span> <span class="n">EmbeddingSimilarityEvaluator</span>
+
+<span class="c1"># Create an embedding similarity evaluator for stsb</span>
+<span class="n">val_sts</span> <span class="o">=</span> <span class="n">load_dataset</span><span class="p">(</span><span class="s1">'glue'</span><span class="p">,</span> <span class="s1">'stsb'</span><span class="p">,</span> <span class="n">split</span><span class="o">=</span><span class="s1">'validation'</span><span class="p">)</span>
+<span class="n">evaluator</span> <span class="o">=</span> <span class="n">EmbeddingSimilarityEvaluator</span><span class="p">(</span>
+    <span class="n">sentences1</span><span class="o">=</span><span class="n">val_sts</span><span class="p">[</span><span class="s2">"sentence1"</span><span class="p">],</span>
+    <span class="n">sentences2</span><span class="o">=</span><span class="n">val_sts</span><span class="p">[</span><span class="s2">"sentence2"</span><span class="p">],</span>
+    <span class="n">scores</span><span class="o">=</span><span class="p">[</span><span class="n">score</span><span class="o">/</span><span class="mi">5</span> <span class="k">for</span> <span class="n">score</span> <span class="ow">in</span> <span class="n">val_sts</span><span class="p">[</span><span class="s2">"label"</span><span class="p">]],</span>
+    <span class="n">main_similarity</span><span class="o">=</span><span class="s2">"cosine"</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+</article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h2><strong>Training</strong></h2></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">sentence_transformers.training_args</span><span class="w"> </span><span class="kn">import</span> <span class="n">SentenceTransformerTrainingArguments</span>
+
+<span class="c1"># Define the training arguments</span>
+<span class="n">args</span> <span class="o">=</span> <span class="n">SentenceTransformerTrainingArguments</span><span class="p">(</span>
+    <span class="n">output_dir</span><span class="o">=</span><span class="s2">"base_embedding_model"</span><span class="p">,</span>
+    <span class="n">num_train_epochs</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">per_device_train_batch_size</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span>
+    <span class="n">per_device_eval_batch_size</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span>
+    <span class="n">warmup_steps</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span>
+    <span class="n">fp16</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">eval_steps</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span>
+    <span class="n">logging_steps</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">sentence_transformers.trainer</span><span class="w"> </span><span class="kn">import</span> <span class="n">SentenceTransformerTrainer</span>
+
+<span class="c1"># Train embedding model</span>
+<span class="n">trainer</span> <span class="o">=</span> <span class="n">SentenceTransformerTrainer</span><span class="p">(</span>
+    <span class="n">model</span><span class="o">=</span><span class="n">embedding_model</span><span class="p">,</span>
+    <span class="n">args</span><span class="o">=</span><span class="n">args</span><span class="p">,</span>
+    <span class="n">train_dataset</span><span class="o">=</span><span class="n">train_dataset</span><span class="p">,</span>
+    <span class="n">loss</span><span class="o">=</span><span class="n">train_loss</span><span class="p">,</span>
+    <span class="n">evaluator</span><span class="o">=</span><span class="n">evaluator</span>
+<span class="p">)</span>
+<span class="n">trainer</span><span class="o">.</span><span class="n">train</span><span class="p">()</span>
+</pre></div>
+<div class="outputs"><div class="output"><div>
+      
+      <progress value='1563' max='1563' style='width:300px; height:20px; vertical-align: middle;'></progress>
+      [1563/1563 06:10, Epoch 1/1]
+    </div>
+    <div class="table-scroll"><table border="1" class="dataframe">
+  <thead>
+ <tr style="text-align: left;">
+      <th>Step</th>
+      <th>Training Loss</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>100</td>
+      <td>1.080700</td>
+    </tr>
+    <tr>
+      <td>200</td>
+      <td>0.959400</td>
+    </tr>
+    <tr>
+      <td>300</td>
+      <td>0.916200</td>
+    </tr>
+    <tr>
+      <td>400</td>
+      <td>0.870200</td>
+    </tr>
+    <tr>
+      <td>500</td>
+      <td>0.849100</td>
+    </tr>
+    <tr>
+      <td>600</td>
+      <td>0.854200</td>
+    </tr>
+    <tr>
+      <td>700</td>
+      <td>0.835200</td>
+    </tr>
+    <tr>
+      <td>800</td>
+      <td>0.825200</td>
+    </tr>
+    <tr>
+      <td>900</td>
+      <td>0.818100</td>
+    </tr>
+    <tr>
+      <td>1000</td>
+      <td>0.800300</td>
+    </tr>
+    <tr>
+      <td>1100</td>
+      <td>0.781600</td>
+    </tr>
+    <tr>
+      <td>1200</td>
+      <td>0.777100</td>
+    </tr>
+    <tr>
+      <td>1300</td>
+      <td>0.786600</td>
+    </tr>
+    <tr>
+      <td>1400</td>
+      <td>0.767900</td>
+    </tr>
+    <tr>
+      <td>1500</td>
+      <td>0.797100</td>
+    </tr>
+  </tbody>
+</table></div><p></div><details class="log"><summary>模型加载记录（交互控件，静态页只保留文字）</summary><pre class="stream">Computing widget examples:   0%|          | 0/5 [00:00&lt;?, ?example/s]
+Computing widget examples:   0%|          | 0/5 [00:00&lt;?, ?example/s]
+Computing widget examples:   0%|          | 0/5 [00:00&lt;?, ?example/s]</pre></details><div class="scrollbox"><pre class="stream stdout">TrainOutput(global_step=1563, training_loss=0.8453957184872716, metrics={&#x27;train_runtime&#x27;: 372.5713, &#x27;train_samples_per_second&#x27;: 134.202, &#x27;train_steps_per_second&#x27;: 4.195, &#x27;total_flos&#x27;: 0.0, &#x27;train_loss&#x27;: 0.8453957184872716, &#x27;epoch&#x27;: 1.0})</pre></div></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Evaluate our trained model</span>
+<span class="n">evaluator</span><span class="p">(</span><span class="n">embedding_model</span><span class="p">)</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">{&#x27;pearson_cosine&#x27;: 0.3710938716460552,
+ &#x27;spearman_cosine&#x27;: 0.45148122260403883,
+ &#x27;pearson_manhattan&#x27;: 0.4037396904694362,
+ &#x27;spearman_manhattan&#x27;: 0.4396893995197567,
+ &#x27;pearson_euclidean&#x27;: 0.390788259199341,
+ &#x27;spearman_euclidean&#x27;: 0.43444104358464286,
+ &#x27;pearson_dot&#x27;: 0.3392927926047231,
+ &#x27;spearman_dot&#x27;: 0.3530708415227247,
+ &#x27;pearson_max&#x27;: 0.4037396904694362,
+ &#x27;spearman_max&#x27;: 0.45148122260403883}</pre></div></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h1>MTEB</h1></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">mteb</span><span class="w"> </span><span class="kn">import</span> <span class="n">MTEB</span>
+
+<span class="c1"># Choose evaluation task</span>
+<span class="n">evaluation</span> <span class="o">=</span> <span class="n">MTEB</span><span class="p">(</span><span class="n">tasks</span><span class="o">=</span><span class="p">[</span><span class="s2">"Banking77Classification"</span><span class="p">])</span>
+
+<span class="c1"># Calculate results</span>
+<span class="n">results</span> <span class="o">=</span> <span class="n">evaluation</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">embedding_model</span><span class="p">)</span>
+<span class="n">results</span>
+</pre></div>
+<div class="outputs"><div class="output"><pre style="white-space:pre;overflow-x:auto;line-height:normal;font-family:Menlo,'DejaVu Sans Mono',consolas,'Courier New',monospace"><span style="color: #262626; text-decoration-color: #262626">───────────────────────────────────────────────── </span><span style="font-weight: bold">Selected tasks </span><span style="color: #262626; text-decoration-color: #262626"> ─────────────────────────────────────────────────</span>
+</pre></div><div class="output"><pre style="white-space:pre;overflow-x:auto;line-height:normal;font-family:Menlo,'DejaVu Sans Mono',consolas,'Courier New',monospace"><span style="font-weight: bold">Classification</span>
+</pre></div><div class="output"><pre style="white-space:pre;overflow-x:auto;line-height:normal;font-family:Menlo,'DejaVu Sans Mono',consolas,'Courier New',monospace">    - Banking77Classification, <span style="color: #626262; text-decoration-color: #626262; font-style: italic">s2s</span>
+</pre></div><div class="output"><pre style="white-space:pre;overflow-x:auto;line-height:normal;font-family:Menlo,'DejaVu Sans Mono',consolas,'Courier New',monospace">
+
+</pre></div><div class="scrollbox"><pre class="stream stderr">/usr/local/lib/python3.10/dist-packages/joblib/externals/loky/backend/fork_exec.py:38: RuntimeWarning: os.fork() was called. os.fork() is incompatible with multithreaded code, and JAX is multithreaded, so this will likely lead to a deadlock.
+  pid = os.fork()
+</pre></div><div class="scrollbox"><pre class="stream stdout">{&#x27;Banking77Classification&#x27;: {&#x27;mteb_version&#x27;: &#x27;1.1.2&#x27;,
+  &#x27;dataset_revision&#x27;: &#x27;0fd18e25b25c072e09e0d92ab615fda904d66300&#x27;,
+  &#x27;mteb_dataset_name&#x27;: &#x27;Banking77Classification&#x27;,
+  &#x27;test&#x27;: {&#x27;accuracy&#x27;: 0.46022727272727276,
+   &#x27;f1&#x27;: 0.45802738001849663,
+   &#x27;accuracy_stderr&#x27;: 0.009556987908238961,
+   &#x27;f1_stderr&#x27;: 0.01072225943077292,
+   &#x27;main_score&#x27;: 0.46022727272727276,
+   &#x27;evaluation_time&#x27;: 29.63}}}</pre></div></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><p>⚠️ <strong>VRAM Clean-up</strong> - You will need to run the code below to partially empty the VRAM (GPU RAM). If that does not work, it is advised to restart the notebook instead. You can check the resources on the right-hand side (if you are using Google Colab) to check whether the used VRAM is indeed low. You can also run <code>!nivia-smi</code> to check current usage.</p></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># # Empty and delete trainer/model</span>
+<span class="c1"># trainer.accelerator.clear()</span>
+<span class="c1"># del trainer, embedding_model</span>
+
+<span class="c1"># # Garbage collection and empty cache</span>
+<span class="c1"># import gc</span>
+<span class="c1"># import torch</span>
+
+<span class="c1"># gc.collect()</span>
+<span class="c1"># torch.cuda.empty_cache()</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">gc</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">empty_cache</span><span class="p">()</span>
+</pre></div>
+</article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h1>Loss Fuctions</h1></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><p>⚠️ <strong>VRAM Clean-up</strong>
+* <code>Restart</code> the notebook in order to clean-up memory if you move on to the next training example.</p></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h2>Cosine Similarity Loss</h2></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">datasets</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span><span class="p">,</span> <span class="n">load_dataset</span>
+
+<span class="c1"># Load MNLI dataset from GLUE</span>
+<span class="c1"># 0 = entailment, 1 = neutral, 2 = contradiction</span>
+<span class="n">train_dataset</span> <span class="o">=</span> <span class="n">load_dataset</span><span class="p">(</span><span class="s2">"glue"</span><span class="p">,</span> <span class="s2">"mnli"</span><span class="p">,</span> <span class="n">split</span><span class="o">=</span><span class="s2">"train"</span><span class="p">)</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="mi">50_000</span><span class="p">))</span>
+<span class="n">train_dataset</span> <span class="o">=</span> <span class="n">train_dataset</span><span class="o">.</span><span class="n">remove_columns</span><span class="p">(</span><span class="s2">"idx"</span><span class="p">)</span>
+
+<span class="c1"># (neutral/contradiction)=0 and (entailment)=1</span>
+<span class="n">mapping</span> <span class="o">=</span> <span class="p">{</span><span class="mi">2</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">:</span><span class="mi">1</span><span class="p">}</span>
+<span class="n">train_dataset</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_dict</span><span class="p">({</span>
+    <span class="s2">"sentence1"</span><span class="p">:</span> <span class="n">train_dataset</span><span class="p">[</span><span class="s2">"premise"</span><span class="p">],</span>
+    <span class="s2">"sentence2"</span><span class="p">:</span> <span class="n">train_dataset</span><span class="p">[</span><span class="s2">"hypothesis"</span><span class="p">],</span>
+    <span class="s2">"label"</span><span class="p">:</span> <span class="p">[</span><span class="nb">float</span><span class="p">(</span><span class="n">mapping</span><span class="p">[</span><span class="n">label</span><span class="p">])</span> <span class="k">for</span> <span class="n">label</span> <span class="ow">in</span> <span class="n">train_dataset</span><span class="p">[</span><span class="s2">"label"</span><span class="p">]]</span>
+<span class="p">})</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">sentence_transformers.evaluation</span><span class="w"> </span><span class="kn">import</span> <span class="n">EmbeddingSimilarityEvaluator</span>
+
+<span class="c1"># Create an embedding similarity evaluator for stsb</span>
+<span class="n">val_sts</span> <span class="o">=</span> <span class="n">load_dataset</span><span class="p">(</span><span class="s1">'glue'</span><span class="p">,</span> <span class="s1">'stsb'</span><span class="p">,</span> <span class="n">split</span><span class="o">=</span><span class="s1">'validation'</span><span class="p">)</span>
+<span class="n">evaluator</span> <span class="o">=</span> <span class="n">EmbeddingSimilarityEvaluator</span><span class="p">(</span>
+    <span class="n">sentences1</span><span class="o">=</span><span class="n">val_sts</span><span class="p">[</span><span class="s2">"sentence1"</span><span class="p">],</span>
+    <span class="n">sentences2</span><span class="o">=</span><span class="n">val_sts</span><span class="p">[</span><span class="s2">"sentence2"</span><span class="p">],</span>
+    <span class="n">scores</span><span class="o">=</span><span class="p">[</span><span class="n">score</span><span class="o">/</span><span class="mi">5</span> <span class="k">for</span> <span class="n">score</span> <span class="ow">in</span> <span class="n">val_sts</span><span class="p">[</span><span class="s2">"label"</span><span class="p">]],</span>
+    <span class="n">main_similarity</span><span class="o">=</span><span class="s2">"cosine"</span>
+<span class="p">)</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">sentence_transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">losses</span><span class="p">,</span> <span class="n">SentenceTransformer</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">sentence_transformers.trainer</span><span class="w"> </span><span class="kn">import</span> <span class="n">SentenceTransformerTrainer</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">sentence_transformers.training_args</span><span class="w"> </span><span class="kn">import</span> <span class="n">SentenceTransformerTrainingArguments</span>
+
+<span class="c1"># Define model</span>
+<span class="n">embedding_model</span> <span class="o">=</span> <span class="n">SentenceTransformer</span><span class="p">(</span><span class="s1">'bert-base-uncased'</span><span class="p">)</span>
+
+<span class="c1"># Loss function</span>
+<span class="n">train_loss</span> <span class="o">=</span> <span class="n">losses</span><span class="o">.</span><span class="n">CosineSimilarityLoss</span><span class="p">(</span><span class="n">model</span><span class="o">=</span><span class="n">embedding_model</span><span class="p">)</span>
+
+<span class="c1"># Define the training arguments</span>
+<span class="n">args</span> <span class="o">=</span> <span class="n">SentenceTransformerTrainingArguments</span><span class="p">(</span>
+    <span class="n">output_dir</span><span class="o">=</span><span class="s2">"cosineloss_embedding_model"</span><span class="p">,</span>
+    <span class="n">num_train_epochs</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">per_device_train_batch_size</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span>
+    <span class="n">per_device_eval_batch_size</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span>
+    <span class="n">warmup_steps</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span>
+    <span class="n">fp16</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">eval_steps</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span>
+    <span class="n">logging_steps</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="c1"># Train model</span>
+<span class="n">trainer</span> <span class="o">=</span> <span class="n">SentenceTransformerTrainer</span><span class="p">(</span>
+    <span class="n">model</span><span class="o">=</span><span class="n">embedding_model</span><span class="p">,</span>
+    <span class="n">args</span><span class="o">=</span><span class="n">args</span><span class="p">,</span>
+    <span class="n">train_dataset</span><span class="o">=</span><span class="n">train_dataset</span><span class="p">,</span>
+    <span class="n">loss</span><span class="o">=</span><span class="n">train_loss</span><span class="p">,</span>
+    <span class="n">evaluator</span><span class="o">=</span><span class="n">evaluator</span>
+<span class="p">)</span>
+<span class="n">trainer</span><span class="o">.</span><span class="n">train</span><span class="p">()</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stderr">WARNING:sentence_transformers.SentenceTransformer:No sentence-transformers model found with name bert-base-uncased. Creating a new one with mean pooling.
+/usr/local/lib/python3.10/dist-packages/huggingface_hub/file_download.py:1132: FutureWarning: `resume_download` is deprecated and will be removed in version 1.0.0. Downloads always resume when possible. If you want to force a new download, use `force_download=True`.
+  warnings.warn(
+</pre></div><div class="output"><div>
+      
+      <progress value='1563' max='1563' style='width:300px; height:20px; vertical-align: middle;'></progress>
+      [1563/1563 06:04, Epoch 1/1]
+    </div>
+    <div class="table-scroll"><table border="1" class="dataframe">
+  <thead>
+ <tr style="text-align: left;">
+      <th>Step</th>
+      <th>Training Loss</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>100</td>
+      <td>0.231900</td>
+    </tr>
+    <tr>
+      <td>200</td>
+      <td>0.168900</td>
+    </tr>
+    <tr>
+      <td>300</td>
+      <td>0.170900</td>
+    </tr>
+    <tr>
+      <td>400</td>
+      <td>0.157800</td>
+    </tr>
+    <tr>
+      <td>500</td>
+      <td>0.152900</td>
+    </tr>
+    <tr>
+      <td>600</td>
+      <td>0.156100</td>
+    </tr>
+    <tr>
+      <td>700</td>
+      <td>0.149300</td>
+    </tr>
+    <tr>
+      <td>800</td>
+      <td>0.154500</td>
+    </tr>
+    <tr>
+      <td>900</td>
+      <td>0.150900</td>
+    </tr>
+    <tr>
+      <td>1000</td>
+      <td>0.145600</td>
+    </tr>
+    <tr>
+      <td>1100</td>
+      <td>0.147800</td>
+    </tr>
+    <tr>
+      <td>1200</td>
+      <td>0.145600</td>
+    </tr>
+    <tr>
+      <td>1300</td>
+      <td>0.145100</td>
+    </tr>
+    <tr>
+      <td>1400</td>
+      <td>0.142000</td>
+    </tr>
+    <tr>
+      <td>1500</td>
+      <td>0.141600</td>
+    </tr>
+  </tbody>
+</table></div><p></div><details class="log"><summary>模型加载记录（交互控件，静态页只保留文字）</summary><pre class="stream">Computing widget examples:   0%|          | 0/5 [00:00&lt;?, ?example/s]
+Computing widget examples:   0%|          | 0/5 [00:00&lt;?, ?example/s]
+Computing widget examples:   0%|          | 0/5 [00:00&lt;?, ?example/s]</pre></details><div class="scrollbox"><pre class="stream stdout">TrainOutput(global_step=1563, training_loss=0.15676780793427353, metrics={&#x27;train_runtime&#x27;: 364.4779, &#x27;train_samples_per_second&#x27;: 137.183, &#x27;train_steps_per_second&#x27;: 4.288, &#x27;total_flos&#x27;: 0.0, &#x27;train_loss&#x27;: 0.15676780793427353, &#x27;epoch&#x27;: 1.0})</pre></div></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Evaluate our trained model</span>
+<span class="n">evaluator</span><span class="p">(</span><span class="n">embedding_model</span><span class="p">)</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">{&#x27;pearson_cosine&#x27;: 0.7222320710908391,
+ &#x27;spearman_cosine&#x27;: 0.725059765496038,
+ &#x27;pearson_manhattan&#x27;: 0.7338172618636865,
+ &#x27;spearman_manhattan&#x27;: 0.7323465534428775,
+ &#x27;pearson_euclidean&#x27;: 0.7332726423686017,
+ &#x27;spearman_euclidean&#x27;: 0.7316943270141215,
+ &#x27;pearson_dot&#x27;: 0.6603672299249149,
+ &#x27;spearman_dot&#x27;: 0.6624301208511642,
+ &#x27;pearson_max&#x27;: 0.7338172618636865,
+ &#x27;spearman_max&#x27;: 0.7323465534428775}</pre></div></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><p>⚠️ <strong>VRAM Clean-up</strong>
+* <code>Restart</code> the notebook in order to clean-up memory if you move on to the next training example.</p></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">gc</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">empty_cache</span><span class="p">()</span>
+</pre></div>
+</article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h2>Multiple Negatives Ranking Loss</h2></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">random</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tqdm</span><span class="w"> </span><span class="kn">import</span> <span class="n">tqdm</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">datasets</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span><span class="p">,</span> <span class="n">load_dataset</span>
+
+<span class="c1"># # Load MNLI dataset from GLUE</span>
+<span class="n">mnli</span> <span class="o">=</span> <span class="n">load_dataset</span><span class="p">(</span><span class="s2">"glue"</span><span class="p">,</span> <span class="s2">"mnli"</span><span class="p">,</span> <span class="n">split</span><span class="o">=</span><span class="s2">"train"</span><span class="p">)</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="mi">50_000</span><span class="p">))</span>
+<span class="n">mnli</span> <span class="o">=</span> <span class="n">mnli</span><span class="o">.</span><span class="n">remove_columns</span><span class="p">(</span><span class="s2">"idx"</span><span class="p">)</span>
+<span class="n">mnli</span> <span class="o">=</span> <span class="n">mnli</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="kc">True</span> <span class="k">if</span> <span class="n">x</span><span class="p">[</span><span class="s1">'label'</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span> <span class="k">else</span> <span class="kc">False</span><span class="p">)</span>
+
+<span class="c1"># Prepare data and add a soft negative</span>
+<span class="n">train_dataset</span> <span class="o">=</span> <span class="p">{</span><span class="s2">"anchor"</span><span class="p">:</span> <span class="p">[],</span> <span class="s2">"positive"</span><span class="p">:</span> <span class="p">[],</span> <span class="s2">"negative"</span><span class="p">:</span> <span class="p">[]}</span>
+<span class="n">soft_negatives</span> <span class="o">=</span> <span class="n">mnli</span><span class="p">[</span><span class="s2">"hypothesis"</span><span class="p">]</span>
+<span class="n">random</span><span class="o">.</span><span class="n">shuffle</span><span class="p">(</span><span class="n">soft_negatives</span><span class="p">)</span>
+<span class="k">for</span> <span class="n">row</span><span class="p">,</span> <span class="n">soft_negative</span> <span class="ow">in</span> <span class="n">tqdm</span><span class="p">(</span><span class="nb">zip</span><span class="p">(</span><span class="n">mnli</span><span class="p">,</span> <span class="n">soft_negatives</span><span class="p">)):</span>
+    <span class="n">train_dataset</span><span class="p">[</span><span class="s2">"anchor"</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s2">"premise"</span><span class="p">])</span>
+    <span class="n">train_dataset</span><span class="p">[</span><span class="s2">"positive"</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s2">"hypothesis"</span><span class="p">])</span>
+    <span class="n">train_dataset</span><span class="p">[</span><span class="s2">"negative"</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">soft_negative</span><span class="p">)</span>
+<span class="n">train_dataset</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_dict</span><span class="p">(</span><span class="n">train_dataset</span><span class="p">)</span>
+<span class="nb">len</span><span class="p">(</span><span class="n">train_dataset</span><span class="p">)</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stderr">16875it [00:01, 14110.96it/s]
+</pre></div><div class="scrollbox"><pre class="stream stdout">16875</pre></div></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">sentence_transformers.evaluation</span><span class="w"> </span><span class="kn">import</span> <span class="n">EmbeddingSimilarityEvaluator</span>
+
+<span class="c1"># Create an embedding similarity evaluator for stsb</span>
+<span class="n">val_sts</span> <span class="o">=</span> <span class="n">load_dataset</span><span class="p">(</span><span class="s1">'glue'</span><span class="p">,</span> <span class="s1">'stsb'</span><span class="p">,</span> <span class="n">split</span><span class="o">=</span><span class="s1">'validation'</span><span class="p">)</span>
+<span class="n">evaluator</span> <span class="o">=</span> <span class="n">EmbeddingSimilarityEvaluator</span><span class="p">(</span>
+    <span class="n">sentences1</span><span class="o">=</span><span class="n">val_sts</span><span class="p">[</span><span class="s2">"sentence1"</span><span class="p">],</span>
+    <span class="n">sentences2</span><span class="o">=</span><span class="n">val_sts</span><span class="p">[</span><span class="s2">"sentence2"</span><span class="p">],</span>
+    <span class="n">scores</span><span class="o">=</span><span class="p">[</span><span class="n">score</span><span class="o">/</span><span class="mi">5</span> <span class="k">for</span> <span class="n">score</span> <span class="ow">in</span> <span class="n">val_sts</span><span class="p">[</span><span class="s2">"label"</span><span class="p">]],</span>
+    <span class="n">main_similarity</span><span class="o">=</span><span class="s2">"cosine"</span>
+<span class="p">)</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">sentence_transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">losses</span><span class="p">,</span> <span class="n">SentenceTransformer</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">sentence_transformers.trainer</span><span class="w"> </span><span class="kn">import</span> <span class="n">SentenceTransformerTrainer</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">sentence_transformers.training_args</span><span class="w"> </span><span class="kn">import</span> <span class="n">SentenceTransformerTrainingArguments</span>
+
+<span class="c1"># Define model</span>
+<span class="n">embedding_model</span> <span class="o">=</span> <span class="n">SentenceTransformer</span><span class="p">(</span><span class="s1">'bert-base-uncased'</span><span class="p">)</span>
+
+<span class="c1"># Loss function</span>
+<span class="n">train_loss</span> <span class="o">=</span> <span class="n">losses</span><span class="o">.</span><span class="n">MultipleNegativesRankingLoss</span><span class="p">(</span><span class="n">model</span><span class="o">=</span><span class="n">embedding_model</span><span class="p">)</span>
+
+<span class="c1"># Define the training arguments</span>
+<span class="n">args</span> <span class="o">=</span> <span class="n">SentenceTransformerTrainingArguments</span><span class="p">(</span>
+    <span class="n">output_dir</span><span class="o">=</span><span class="s2">"mnrloss_embedding_model"</span><span class="p">,</span>
+    <span class="n">num_train_epochs</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">per_device_train_batch_size</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span>
+    <span class="n">per_device_eval_batch_size</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span>
+    <span class="n">warmup_steps</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span>
+    <span class="n">fp16</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">eval_steps</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span>
+    <span class="n">logging_steps</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="c1"># Train model</span>
+<span class="n">trainer</span> <span class="o">=</span> <span class="n">SentenceTransformerTrainer</span><span class="p">(</span>
+    <span class="n">model</span><span class="o">=</span><span class="n">embedding_model</span><span class="p">,</span>
+    <span class="n">args</span><span class="o">=</span><span class="n">args</span><span class="p">,</span>
+    <span class="n">train_dataset</span><span class="o">=</span><span class="n">train_dataset</span><span class="p">,</span>
+    <span class="n">loss</span><span class="o">=</span><span class="n">train_loss</span><span class="p">,</span>
+    <span class="n">evaluator</span><span class="o">=</span><span class="n">evaluator</span>
+<span class="p">)</span>
+<span class="n">trainer</span><span class="o">.</span><span class="n">train</span><span class="p">()</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stderr">WARNING:sentence_transformers.SentenceTransformer:No sentence-transformers model found with name bert-base-uncased. Creating a new one with mean pooling.
+/usr/local/lib/python3.10/dist-packages/huggingface_hub/file_download.py:1132: FutureWarning: `resume_download` is deprecated and will be removed in version 1.0.0. Downloads always resume when possible. If you want to force a new download, use `force_download=True`.
+  warnings.warn(
+</pre></div><div class="output"><div>
+      
+      <progress value='528' max='528' style='width:300px; height:20px; vertical-align: middle;'></progress>
+      [528/528 03:00, Epoch 1/1]
+    </div>
+    <div class="table-scroll"><table border="1" class="dataframe">
+  <thead>
+ <tr style="text-align: left;">
+      <th>Step</th>
+      <th>Training Loss</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>100</td>
+      <td>0.345200</td>
+    </tr>
+    <tr>
+      <td>200</td>
+      <td>0.105500</td>
+    </tr>
+    <tr>
+      <td>300</td>
+      <td>0.079000</td>
+    </tr>
+    <tr>
+      <td>400</td>
+      <td>0.062200</td>
+    </tr>
+    <tr>
+      <td>500</td>
+      <td>0.069000</td>
+    </tr>
+  </tbody>
+</table></div><p></div><div class="widget-log"><span class="tag">交互输出</span> 静态页不能运行这个控件，请用「在 Colab 打开」。<pre class="stream">Computing widget examples:   0%|          | 0/5 [00:00&lt;?, ?example/s]</pre></div><div class="scrollbox"><pre class="stream stdout">TrainOutput(global_step=528, training_loss=0.12795479415041028, metrics={&#x27;train_runtime&#x27;: 180.866, &#x27;train_samples_per_second&#x27;: 93.301, &#x27;train_steps_per_second&#x27;: 2.919, &#x27;total_flos&#x27;: 0.0, &#x27;train_loss&#x27;: 0.12795479415041028, &#x27;epoch&#x27;: 1.0})</pre></div></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Evaluate our trained model</span>
+<span class="n">evaluator</span><span class="p">(</span><span class="n">embedding_model</span><span class="p">)</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">{&#x27;pearson_cosine&#x27;: 0.8070727434643791,
+ &#x27;spearman_cosine&#x27;: 0.8106193672462586,
+ &#x27;pearson_manhattan&#x27;: 0.8213132116968124,
+ &#x27;spearman_manhattan&#x27;: 0.8164551132664518,
+ &#x27;pearson_euclidean&#x27;: 0.820988086354926,
+ &#x27;spearman_euclidean&#x27;: 0.8160139830687847,
+ &#x27;pearson_dot&#x27;: 0.7429357515240518,
+ &#x27;spearman_dot&#x27;: 0.7316164586329814,
+ &#x27;pearson_max&#x27;: 0.8213132116968124,
+ &#x27;spearman_max&#x27;: 0.8164551132664518}</pre></div></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h1><strong>Fine-tuning</strong></h1></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><p>⚠️ <strong>VRAM Clean-up</strong>
+* <code>Restart</code> the notebook in order to clean-up memory if you move on to the next training example.</p></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">gc</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">empty_cache</span><span class="p">()</span>
+</pre></div>
+</article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h2><strong>Supervised</strong></h2></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">datasets</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_dataset</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">sentence_transformers.evaluation</span><span class="w"> </span><span class="kn">import</span> <span class="n">EmbeddingSimilarityEvaluator</span>
+
+<span class="c1"># Load MNLI dataset from GLUE</span>
+<span class="c1"># 0 = entailment, 1 = neutral, 2 = contradiction</span>
+<span class="n">train_dataset</span> <span class="o">=</span> <span class="n">load_dataset</span><span class="p">(</span><span class="s2">"glue"</span><span class="p">,</span> <span class="s2">"mnli"</span><span class="p">,</span> <span class="n">split</span><span class="o">=</span><span class="s2">"train"</span><span class="p">)</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="mi">50_000</span><span class="p">))</span>
+<span class="n">train_dataset</span> <span class="o">=</span> <span class="n">train_dataset</span><span class="o">.</span><span class="n">remove_columns</span><span class="p">(</span><span class="s2">"idx"</span><span class="p">)</span>
+
+<span class="c1"># Create an embedding similarity evaluator for stsb</span>
+<span class="n">val_sts</span> <span class="o">=</span> <span class="n">load_dataset</span><span class="p">(</span><span class="s1">'glue'</span><span class="p">,</span> <span class="s1">'stsb'</span><span class="p">,</span> <span class="n">split</span><span class="o">=</span><span class="s1">'validation'</span><span class="p">)</span>
+<span class="n">evaluator</span> <span class="o">=</span> <span class="n">EmbeddingSimilarityEvaluator</span><span class="p">(</span>
+    <span class="n">sentences1</span><span class="o">=</span><span class="n">val_sts</span><span class="p">[</span><span class="s2">"sentence1"</span><span class="p">],</span>
+    <span class="n">sentences2</span><span class="o">=</span><span class="n">val_sts</span><span class="p">[</span><span class="s2">"sentence2"</span><span class="p">],</span>
+    <span class="n">scores</span><span class="o">=</span><span class="p">[</span><span class="n">score</span><span class="o">/</span><span class="mi">5</span> <span class="k">for</span> <span class="n">score</span> <span class="ow">in</span> <span class="n">val_sts</span><span class="p">[</span><span class="s2">"label"</span><span class="p">]],</span>
+    <span class="n">main_similarity</span><span class="o">=</span><span class="s2">"cosine"</span>
+<span class="p">)</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">sentence_transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">losses</span><span class="p">,</span> <span class="n">SentenceTransformer</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">sentence_transformers.trainer</span><span class="w"> </span><span class="kn">import</span> <span class="n">SentenceTransformerTrainer</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">sentence_transformers.training_args</span><span class="w"> </span><span class="kn">import</span> <span class="n">SentenceTransformerTrainingArguments</span>
+
+<span class="c1"># Define model</span>
+<span class="n">embedding_model</span> <span class="o">=</span> <span class="n">SentenceTransformer</span><span class="p">(</span><span class="s1">'sentence-transformers/all-MiniLM-L6-v2'</span><span class="p">)</span>
+
+<span class="c1"># Loss function</span>
+<span class="n">train_loss</span> <span class="o">=</span> <span class="n">losses</span><span class="o">.</span><span class="n">MultipleNegativesRankingLoss</span><span class="p">(</span><span class="n">model</span><span class="o">=</span><span class="n">embedding_model</span><span class="p">)</span>
+
+<span class="c1"># Define the training arguments</span>
+<span class="n">args</span> <span class="o">=</span> <span class="n">SentenceTransformerTrainingArguments</span><span class="p">(</span>
+    <span class="n">output_dir</span><span class="o">=</span><span class="s2">"finetuned_embedding_model"</span><span class="p">,</span>
+    <span class="n">num_train_epochs</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">per_device_train_batch_size</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span>
+    <span class="n">per_device_eval_batch_size</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span>
+    <span class="n">warmup_steps</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span>
+    <span class="n">fp16</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">eval_steps</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span>
+    <span class="n">logging_steps</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="c1"># Train model</span>
+<span class="n">trainer</span> <span class="o">=</span> <span class="n">SentenceTransformerTrainer</span><span class="p">(</span>
+    <span class="n">model</span><span class="o">=</span><span class="n">embedding_model</span><span class="p">,</span>
+    <span class="n">args</span><span class="o">=</span><span class="n">args</span><span class="p">,</span>
+    <span class="n">train_dataset</span><span class="o">=</span><span class="n">train_dataset</span><span class="p">,</span>
+    <span class="n">loss</span><span class="o">=</span><span class="n">train_loss</span><span class="p">,</span>
+    <span class="n">evaluator</span><span class="o">=</span><span class="n">evaluator</span>
+<span class="p">)</span>
+<span class="n">trainer</span><span class="o">.</span><span class="n">train</span><span class="p">()</span>
+</pre></div>
+<div class="outputs"><details class="log"><summary>模型加载记录（交互控件，静态页只保留文字）</summary><pre class="stream">modules.json:   0%|          | 0.00/349 [00:00&lt;?, ?B/s]
+config_sentence_transformers.json:   0%|          | 0.00/116 [00:00&lt;?, ?B/s]
+README.md:   0%|          | 0.00/10.7k [00:00&lt;?, ?B/s]
+sentence_bert_config.json:   0%|          | 0.00/53.0 [00:00&lt;?, ?B/s]</pre></details><div class="scrollbox"><pre class="stream stderr">/usr/local/lib/python3.10/dist-packages/huggingface_hub/file_download.py:1132: FutureWarning: `resume_download` is deprecated and will be removed in version 1.0.0. Downloads always resume when possible. If you want to force a new download, use `force_download=True`.
+  warnings.warn(
+</pre></div><details class="log"><summary>模型加载记录（交互控件，静态页只保留文字）</summary><pre class="stream">config.json:   0%|          | 0.00/612 [00:00&lt;?, ?B/s]
+model.safetensors:   0%|          | 0.00/90.9M [00:00&lt;?, ?B/s]
+tokenizer_config.json:   0%|          | 0.00/350 [00:00&lt;?, ?B/s]
+vocab.txt:   0%|          | 0.00/232k [00:00&lt;?, ?B/s]
+tokenizer.json:   0%|          | 0.00/466k [00:00&lt;?, ?B/s]
+special_tokens_map.json:   0%|          | 0.00/112 [00:00&lt;?, ?B/s]
+1_Pooling/config.json:   0%|          | 0.00/190 [00:00&lt;?, ?B/s]</pre></details><div class="output"><div>
+      
+      <progress value='1563' max='1563' style='width:300px; height:20px; vertical-align: middle;'></progress>
+      [1563/1563 01:57, Epoch 1/1]
+    </div>
+    <div class="table-scroll"><table border="1" class="dataframe">
+  <thead>
+ <tr style="text-align: left;">
+      <th>Step</th>
+      <th>Training Loss</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>100</td>
+      <td>0.155500</td>
+    </tr>
+    <tr>
+      <td>200</td>
+      <td>0.110000</td>
+    </tr>
+    <tr>
+      <td>300</td>
+      <td>0.118600</td>
+    </tr>
+    <tr>
+      <td>400</td>
+      <td>0.115300</td>
+    </tr>
+    <tr>
+      <td>500</td>
+      <td>0.110700</td>
+    </tr>
+    <tr>
+      <td>600</td>
+      <td>0.101000</td>
+    </tr>
+    <tr>
+      <td>700</td>
+      <td>0.113100</td>
+    </tr>
+    <tr>
+      <td>800</td>
+      <td>0.099800</td>
+    </tr>
+    <tr>
+      <td>900</td>
+      <td>0.109600</td>
+    </tr>
+    <tr>
+      <td>1000</td>
+      <td>0.105800</td>
+    </tr>
+    <tr>
+      <td>1100</td>
+      <td>0.094900</td>
+    </tr>
+    <tr>
+      <td>1200</td>
+      <td>0.106400</td>
+    </tr>
+    <tr>
+      <td>1300</td>
+      <td>0.105300</td>
+    </tr>
+    <tr>
+      <td>1400</td>
+      <td>0.105200</td>
+    </tr>
+    <tr>
+      <td>1500</td>
+      <td>0.106600</td>
+    </tr>
+  </tbody>
+</table></div><p></div><details class="log"><summary>模型加载记录（交互控件，静态页只保留文字）</summary><pre class="stream">Computing widget examples:   0%|          | 0/5 [00:00&lt;?, ?example/s]
+Computing widget examples:   0%|          | 0/5 [00:00&lt;?, ?example/s]
+Computing widget examples:   0%|          | 0/5 [00:00&lt;?, ?example/s]</pre></details><div class="scrollbox"><pre class="stream stdout">TrainOutput(global_step=1563, training_loss=0.10982195932897176, metrics={&#x27;train_runtime&#x27;: 117.3739, &#x27;train_samples_per_second&#x27;: 425.989, &#x27;train_steps_per_second&#x27;: 13.316, &#x27;total_flos&#x27;: 0.0, &#x27;train_loss&#x27;: 0.10982195932897176, &#x27;epoch&#x27;: 1.0})</pre></div></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Evaluate our trained model</span>
+<span class="n">evaluator</span><span class="p">(</span><span class="n">embedding_model</span><span class="p">)</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">{&#x27;pearson_cosine&#x27;: 0.8489503881223601,
+ &#x27;spearman_cosine&#x27;: 0.8484667083117318,
+ &#x27;pearson_manhattan&#x27;: 0.8503843871673679,
+ &#x27;spearman_manhattan&#x27;: 0.8475679105384369,
+ &#x27;pearson_euclidean&#x27;: 0.8513072191805562,
+ &#x27;spearman_euclidean&#x27;: 0.8484667083117318,
+ &#x27;pearson_dot&#x27;: 0.8489503890256918,
+ &#x27;spearman_dot&#x27;: 0.8484667083117318,
+ &#x27;pearson_max&#x27;: 0.8513072191805562,
+ &#x27;spearman_max&#x27;: 0.8484667083117318}</pre></div></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Evaluate the pre-trained model</span>
+<span class="n">original_model</span> <span class="o">=</span> <span class="n">SentenceTransformer</span><span class="p">(</span><span class="s1">'sentence-transformers/all-MiniLM-L6-v2'</span><span class="p">)</span>
+<span class="n">evaluator</span><span class="p">(</span><span class="n">original_model</span><span class="p">)</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stderr">/usr/local/lib/python3.10/dist-packages/huggingface_hub/file_download.py:1132: FutureWarning: `resume_download` is deprecated and will be removed in version 1.0.0. Downloads always resume when possible. If you want to force a new download, use `force_download=True`.
+  warnings.warn(
+</pre></div><div class="scrollbox"><pre class="stream stdout">{&#x27;pearson_cosine&#x27;: 0.8696194608752055,
+ &#x27;spearman_cosine&#x27;: 0.8671637433378804,
+ &#x27;pearson_manhattan&#x27;: 0.8670399009851635,
+ &#x27;spearman_manhattan&#x27;: 0.8663946139224048,
+ &#x27;pearson_euclidean&#x27;: 0.867871599362501,
+ &#x27;spearman_euclidean&#x27;: 0.8671643653432983,
+ &#x27;pearson_dot&#x27;: 0.8696194616795601,
+ &#x27;spearman_dot&#x27;: 0.8671631197908374,
+ &#x27;pearson_max&#x27;: 0.8696194616795601,
+ &#x27;spearman_max&#x27;: 0.8671643653432983}</pre></div></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><p>⚠️ <strong>VRAM Clean-up</strong>
+* <code>Restart</code> the notebook in order to clean-up memory if you move on to the next training example.</p></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">gc</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">empty_cache</span><span class="p">()</span>
+</pre></div>
+</article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h2><strong>Augmented SBERT</strong></h2></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><p><strong>Step 1:</strong> Fine-tune a cross-encoder</p></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tqdm</span><span class="w"> </span><span class="kn">import</span> <span class="n">tqdm</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">datasets</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_dataset</span><span class="p">,</span> <span class="n">Dataset</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">sentence_transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">InputExample</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">sentence_transformers.datasets</span><span class="w"> </span><span class="kn">import</span> <span class="n">NoDuplicatesDataLoader</span>
+
+<span class="c1"># Prepare a small set of 10000 documents for the cross-encoder</span>
+<span class="n">dataset</span> <span class="o">=</span> <span class="n">load_dataset</span><span class="p">(</span><span class="s2">"glue"</span><span class="p">,</span> <span class="s2">"mnli"</span><span class="p">,</span> <span class="n">split</span><span class="o">=</span><span class="s2">"train"</span><span class="p">)</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="mi">10_000</span><span class="p">))</span>
+<span class="n">mapping</span> <span class="o">=</span> <span class="p">{</span><span class="mi">2</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">:</span><span class="mi">1</span><span class="p">}</span>
+
+<span class="c1"># Data Loader</span>
+<span class="n">gold_examples</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="n">InputExample</span><span class="p">(</span><span class="n">texts</span><span class="o">=</span><span class="p">[</span><span class="n">row</span><span class="p">[</span><span class="s2">"premise"</span><span class="p">],</span> <span class="n">row</span><span class="p">[</span><span class="s2">"hypothesis"</span><span class="p">]],</span> <span class="n">label</span><span class="o">=</span><span class="n">mapping</span><span class="p">[</span><span class="n">row</span><span class="p">[</span><span class="s2">"label"</span><span class="p">]])</span>
+    <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">tqdm</span><span class="p">(</span><span class="n">dataset</span><span class="p">)</span>
+<span class="p">]</span>
+<span class="n">gold_dataloader</span> <span class="o">=</span> <span class="n">NoDuplicatesDataLoader</span><span class="p">(</span><span class="n">gold_examples</span><span class="p">,</span> <span class="n">batch_size</span><span class="o">=</span><span class="mi">32</span><span class="p">)</span>
+
+<span class="c1"># Pandas DataFrame for easier data handling</span>
+<span class="n">gold</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span>
+    <span class="p">{</span>
+    <span class="s1">'sentence1'</span><span class="p">:</span> <span class="n">dataset</span><span class="p">[</span><span class="s1">'premise'</span><span class="p">],</span>
+    <span class="s1">'sentence2'</span><span class="p">:</span> <span class="n">dataset</span><span class="p">[</span><span class="s1">'hypothesis'</span><span class="p">],</span>
+    <span class="s1">'label'</span><span class="p">:</span> <span class="p">[</span><span class="n">mapping</span><span class="p">[</span><span class="n">label</span><span class="p">]</span> <span class="k">for</span> <span class="n">label</span> <span class="ow">in</span> <span class="n">dataset</span><span class="p">[</span><span class="s1">'label'</span><span class="p">]]</span>
+    <span class="p">}</span>
+<span class="p">)</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stderr">100%|██████████| 10000/10000 [00:00&lt;00:00, 25870.92it/s]
+</pre></div></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">sentence_transformers.cross_encoder</span><span class="w"> </span><span class="kn">import</span> <span class="n">CrossEncoder</span>
+
+<span class="c1"># Train a cross-encoder on the gold dataset</span>
+<span class="n">cross_encoder</span> <span class="o">=</span> <span class="n">CrossEncoder</span><span class="p">(</span><span class="s1">'bert-base-uncased'</span><span class="p">,</span> <span class="n">num_labels</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+<span class="n">cross_encoder</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span>
+    <span class="n">train_dataloader</span><span class="o">=</span><span class="n">gold_dataloader</span><span class="p">,</span>
+    <span class="n">epochs</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">show_progress_bar</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">warmup_steps</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span>
+    <span class="n">use_amp</span><span class="o">=</span><span class="kc">False</span>
+<span class="p">)</span>
+</pre></div>
+<div class="outputs"><details class="log"><summary>运行日志 · /usr/local/lib/python3.10/dist-packages/huggingface_hub/file_download.py:1132: FutureWarni</summary><pre class="stream stderr">/usr/local/lib/python3.10/dist-packages/huggingface_hub/file_download.py:1132: FutureWarning: `resume_download` is deprecated and will be removed in version 1.0.0. Downloads always resume when possible. If you want to force a new download, use `force_download=True`.
+  warnings.warn(
+Some weights of BertForSequenceClassification were not initialized from the model checkpoint at bert-base-uncased and are newly initialized: [&#x27;classifier.bias&#x27;, &#x27;classifier.weight&#x27;]
+You should probably TRAIN this model on a down-stream task to be able to use it for predictions and inference.
+</pre></details><details class="log"><summary>模型加载记录（交互控件，静态页只保留文字）</summary><pre class="stream">Epoch:   0%|          | 0/1 [00:00&lt;?, ?it/s]
+Iteration:   0%|          | 0/312 [00:00&lt;?, ?it/s]</pre></details></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><p><strong>Step 2:</strong> Create new sentence pairs</p></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Prepare the silver dataset by predicting labels with the cross-encoder</span>
+<span class="n">silver</span> <span class="o">=</span> <span class="n">load_dataset</span><span class="p">(</span><span class="s2">"glue"</span><span class="p">,</span> <span class="s2">"mnli"</span><span class="p">,</span> <span class="n">split</span><span class="o">=</span><span class="s2">"train"</span><span class="p">)</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="mi">10_000</span><span class="p">,</span> <span class="mi">50_000</span><span class="p">))</span>
+<span class="n">pairs</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="nb">zip</span><span class="p">(</span><span class="n">silver</span><span class="p">[</span><span class="s1">'premise'</span><span class="p">],</span> <span class="n">silver</span><span class="p">[</span><span class="s1">'hypothesis'</span><span class="p">]))</span>
+</pre></div>
+</article>
+<article class="cell cell-md"><div class="markdown" lang="en"><p><strong>Step 3:</strong> Label new sentence pairs with the fine-tuned cross-encoder (silver dataset)</p></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+
+<span class="c1"># Label the sentence pairs using our fine-tuned cross-encoder</span>
+<span class="n">output</span> <span class="o">=</span> <span class="n">cross_encoder</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">pairs</span><span class="p">,</span> <span class="n">apply_softmax</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">show_progress_bar</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">silver</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span>
+    <span class="p">{</span>
+        <span class="s2">"sentence1"</span><span class="p">:</span> <span class="n">silver</span><span class="p">[</span><span class="s2">"premise"</span><span class="p">],</span>
+        <span class="s2">"sentence2"</span><span class="p">:</span> <span class="n">silver</span><span class="p">[</span><span class="s2">"hypothesis"</span><span class="p">],</span>
+        <span class="s2">"label"</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">argmax</span><span class="p">(</span><span class="n">output</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+    <span class="p">}</span>
+<span class="p">)</span>
+</pre></div>
+</article>
+<article class="cell cell-md"><div class="markdown" lang="en"><p><strong>Step 4:</strong> Train a bi-encoder (SBERT) on the extended dataset (gold + silver dataset)</p></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Combine gold + silver</span>
+<span class="n">data</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">concat</span><span class="p">([</span><span class="n">gold</span><span class="p">,</span> <span class="n">silver</span><span class="p">],</span> <span class="n">ignore_index</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">data</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">drop_duplicates</span><span class="p">(</span><span class="n">subset</span><span class="o">=</span><span class="p">[</span><span class="s1">'sentence1'</span><span class="p">,</span> <span class="s1">'sentence2'</span><span class="p">],</span> <span class="n">keep</span><span class="o">=</span><span class="s2">"first"</span><span class="p">)</span>
+<span class="n">train_dataset</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_pandas</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">preserve_index</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">sentence_transformers.evaluation</span><span class="w"> </span><span class="kn">import</span> <span class="n">EmbeddingSimilarityEvaluator</span>
+
+<span class="c1"># Create an embedding similarity evaluator for stsb</span>
+<span class="n">val_sts</span> <span class="o">=</span> <span class="n">load_dataset</span><span class="p">(</span><span class="s1">'glue'</span><span class="p">,</span> <span class="s1">'stsb'</span><span class="p">,</span> <span class="n">split</span><span class="o">=</span><span class="s1">'validation'</span><span class="p">)</span>
+<span class="n">evaluator</span> <span class="o">=</span> <span class="n">EmbeddingSimilarityEvaluator</span><span class="p">(</span>
+    <span class="n">sentences1</span><span class="o">=</span><span class="n">val_sts</span><span class="p">[</span><span class="s2">"sentence1"</span><span class="p">],</span>
+    <span class="n">sentences2</span><span class="o">=</span><span class="n">val_sts</span><span class="p">[</span><span class="s2">"sentence2"</span><span class="p">],</span>
+    <span class="n">scores</span><span class="o">=</span><span class="p">[</span><span class="n">score</span><span class="o">/</span><span class="mi">5</span> <span class="k">for</span> <span class="n">score</span> <span class="ow">in</span> <span class="n">val_sts</span><span class="p">[</span><span class="s2">"label"</span><span class="p">]],</span>
+    <span class="n">main_similarity</span><span class="o">=</span><span class="s2">"cosine"</span>
+<span class="p">)</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">sentence_transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">losses</span><span class="p">,</span> <span class="n">SentenceTransformer</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">sentence_transformers.trainer</span><span class="w"> </span><span class="kn">import</span> <span class="n">SentenceTransformerTrainer</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">sentence_transformers.training_args</span><span class="w"> </span><span class="kn">import</span> <span class="n">SentenceTransformerTrainingArguments</span>
+
+<span class="c1"># Define model</span>
+<span class="n">embedding_model</span> <span class="o">=</span> <span class="n">SentenceTransformer</span><span class="p">(</span><span class="s1">'bert-base-uncased'</span><span class="p">)</span>
+
+<span class="c1"># Loss function</span>
+<span class="n">train_loss</span> <span class="o">=</span> <span class="n">losses</span><span class="o">.</span><span class="n">CosineSimilarityLoss</span><span class="p">(</span><span class="n">model</span><span class="o">=</span><span class="n">embedding_model</span><span class="p">)</span>
+
+<span class="c1"># Define the training arguments</span>
+<span class="n">args</span> <span class="o">=</span> <span class="n">SentenceTransformerTrainingArguments</span><span class="p">(</span>
+    <span class="n">output_dir</span><span class="o">=</span><span class="s2">"augmented_embedding_model"</span><span class="p">,</span>
+    <span class="n">num_train_epochs</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">per_device_train_batch_size</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span>
+    <span class="n">per_device_eval_batch_size</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span>
+    <span class="n">warmup_steps</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span>
+    <span class="n">fp16</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">eval_steps</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span>
+    <span class="n">logging_steps</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="c1"># Train model</span>
+<span class="n">trainer</span> <span class="o">=</span> <span class="n">SentenceTransformerTrainer</span><span class="p">(</span>
+    <span class="n">model</span><span class="o">=</span><span class="n">embedding_model</span><span class="p">,</span>
+    <span class="n">args</span><span class="o">=</span><span class="n">args</span><span class="p">,</span>
+    <span class="n">train_dataset</span><span class="o">=</span><span class="n">train_dataset</span><span class="p">,</span>
+    <span class="n">loss</span><span class="o">=</span><span class="n">train_loss</span><span class="p">,</span>
+    <span class="n">evaluator</span><span class="o">=</span><span class="n">evaluator</span>
+<span class="p">)</span>
+<span class="n">trainer</span><span class="o">.</span><span class="n">train</span><span class="p">()</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Evaluate our trained model</span>
+<span class="n">evaluator</span><span class="p">(</span><span class="n">embedding_model</span><span class="p">)</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="n">trainer</span><span class="o">.</span><span class="n">accelerator</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+</pre></div>
+</article>
+<article class="cell cell-md"><div class="markdown" lang="en"><p><strong>Step 5</strong>: Evaluate without silver dataset</p></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Combine gold + silver</span>
+<span class="n">data</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">concat</span><span class="p">([</span><span class="n">gold</span><span class="p">],</span> <span class="n">ignore_index</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+<span class="n">data</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">drop_duplicates</span><span class="p">(</span><span class="n">subset</span><span class="o">=</span><span class="p">[</span><span class="s1">'sentence1'</span><span class="p">,</span> <span class="s1">'sentence2'</span><span class="p">],</span> <span class="n">keep</span><span class="o">=</span><span class="s2">"first"</span><span class="p">)</span>
+<span class="n">train_dataset</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_pandas</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">preserve_index</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+
+<span class="c1"># Define model</span>
+<span class="n">embedding_model</span> <span class="o">=</span> <span class="n">SentenceTransformer</span><span class="p">(</span><span class="s1">'bert-base-uncased'</span><span class="p">)</span>
+
+<span class="c1"># Loss function</span>
+<span class="n">train_loss</span> <span class="o">=</span> <span class="n">losses</span><span class="o">.</span><span class="n">CosineSimilarityLoss</span><span class="p">(</span><span class="n">model</span><span class="o">=</span><span class="n">embedding_model</span><span class="p">)</span>
+
+<span class="c1"># Define the training arguments</span>
+<span class="n">args</span> <span class="o">=</span> <span class="n">SentenceTransformerTrainingArguments</span><span class="p">(</span>
+    <span class="n">output_dir</span><span class="o">=</span><span class="s2">"gold_only_embedding_model"</span><span class="p">,</span>
+    <span class="n">num_train_epochs</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">per_device_train_batch_size</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span>
+    <span class="n">per_device_eval_batch_size</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span>
+    <span class="n">warmup_steps</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span>
+    <span class="n">fp16</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">eval_steps</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span>
+    <span class="n">logging_steps</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="c1"># Train model</span>
+<span class="n">trainer</span> <span class="o">=</span> <span class="n">SentenceTransformerTrainer</span><span class="p">(</span>
+    <span class="n">model</span><span class="o">=</span><span class="n">embedding_model</span><span class="p">,</span>
+    <span class="n">args</span><span class="o">=</span><span class="n">args</span><span class="p">,</span>
+    <span class="n">train_dataset</span><span class="o">=</span><span class="n">train_dataset</span><span class="p">,</span>
+    <span class="n">loss</span><span class="o">=</span><span class="n">train_loss</span><span class="p">,</span>
+    <span class="n">evaluator</span><span class="o">=</span><span class="n">evaluator</span>
+<span class="p">)</span>
+<span class="n">trainer</span><span class="o">.</span><span class="n">train</span><span class="p">()</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Evaluate our trained model</span>
+<span class="n">evaluator</span><span class="p">(</span><span class="n">embedding_model</span><span class="p">)</span>
+</pre></div>
+</article>
+<article class="cell cell-md"><div class="markdown" lang="en"><p>Compared to using both the silver and gold datasets, using only the gold dataset reduces the performance of the model!</p></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><p>⚠️ <strong>VRAM Clean-up</strong>
+* <code>Restart</code> the notebook in order to clean-up memory if you move on to the next training example.</p></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">gc</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">empty_cache</span><span class="p">()</span>
+</pre></div>
+</article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h2><strong>Unsupervised Learning</strong></h2></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h3>Tranformer-based Denoising AutoEncoder (TSDAE)</h3></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Download additional tokenizer</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">nltk</span>
+<span class="n">nltk</span><span class="o">.</span><span class="n">download</span><span class="p">(</span><span class="s1">'punkt'</span><span class="p">)</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">tqdm</span><span class="w"> </span><span class="kn">import</span> <span class="n">tqdm</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">datasets</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dataset</span><span class="p">,</span> <span class="n">load_dataset</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">sentence_transformers.datasets</span><span class="w"> </span><span class="kn">import</span> <span class="n">DenoisingAutoEncoderDataset</span>
+
+<span class="c1"># Create a flat list of sentences</span>
+<span class="n">mnli</span> <span class="o">=</span> <span class="n">load_dataset</span><span class="p">(</span><span class="s2">"glue"</span><span class="p">,</span> <span class="s2">"mnli"</span><span class="p">,</span> <span class="n">split</span><span class="o">=</span><span class="s2">"train"</span><span class="p">)</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="mi">25_000</span><span class="p">))</span>
+<span class="n">flat_sentences</span> <span class="o">=</span> <span class="n">mnli</span><span class="p">[</span><span class="s2">"premise"</span><span class="p">]</span> <span class="o">+</span> <span class="n">mnli</span><span class="p">[</span><span class="s2">"hypothesis"</span><span class="p">]</span>
+
+<span class="c1"># Add noise to our input data</span>
+<span class="n">damaged_data</span> <span class="o">=</span> <span class="n">DenoisingAutoEncoderDataset</span><span class="p">(</span><span class="nb">list</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">flat_sentences</span><span class="p">)))</span>
+
+<span class="c1"># Create dataset</span>
+<span class="n">train_dataset</span> <span class="o">=</span> <span class="p">{</span><span class="s2">"damaged_sentence"</span><span class="p">:</span> <span class="p">[],</span> <span class="s2">"original_sentence"</span><span class="p">:</span> <span class="p">[]}</span>
+<span class="k">for</span> <span class="n">data</span> <span class="ow">in</span> <span class="n">tqdm</span><span class="p">(</span><span class="n">damaged_data</span><span class="p">):</span>
+    <span class="n">train_dataset</span><span class="p">[</span><span class="s2">"damaged_sentence"</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">texts</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+    <span class="n">train_dataset</span><span class="p">[</span><span class="s2">"original_sentence"</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">texts</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+<span class="n">train_dataset</span> <span class="o">=</span> <span class="n">Dataset</span><span class="o">.</span><span class="n">from_dict</span><span class="p">(</span><span class="n">train_dataset</span><span class="p">)</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="n">train_dataset</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># # Choose a different deletion ratio</span>
+<span class="c1"># flat_sentences = list(set(flat_sentences))</span>
+<span class="c1"># damaged_data = DenoisingAutoEncoderDataset(</span>
+<span class="c1">#     flat_sentences,</span>
+<span class="c1">#     noise_fn=lambda s: DenoisingAutoEncoderDataset.delete(s, del_ratio=0.6)</span>
+<span class="c1"># )</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">sentence_transformers.evaluation</span><span class="w"> </span><span class="kn">import</span> <span class="n">EmbeddingSimilarityEvaluator</span>
+
+<span class="c1"># Create an embedding similarity evaluator for stsb</span>
+<span class="n">val_sts</span> <span class="o">=</span> <span class="n">load_dataset</span><span class="p">(</span><span class="s1">'glue'</span><span class="p">,</span> <span class="s1">'stsb'</span><span class="p">,</span> <span class="n">split</span><span class="o">=</span><span class="s1">'validation'</span><span class="p">)</span>
+<span class="n">evaluator</span> <span class="o">=</span> <span class="n">EmbeddingSimilarityEvaluator</span><span class="p">(</span>
+    <span class="n">sentences1</span><span class="o">=</span><span class="n">val_sts</span><span class="p">[</span><span class="s2">"sentence1"</span><span class="p">],</span>
+    <span class="n">sentences2</span><span class="o">=</span><span class="n">val_sts</span><span class="p">[</span><span class="s2">"sentence2"</span><span class="p">],</span>
+    <span class="n">scores</span><span class="o">=</span><span class="p">[</span><span class="n">score</span><span class="o">/</span><span class="mi">5</span> <span class="k">for</span> <span class="n">score</span> <span class="ow">in</span> <span class="n">val_sts</span><span class="p">[</span><span class="s2">"label"</span><span class="p">]],</span>
+    <span class="n">main_similarity</span><span class="o">=</span><span class="s2">"cosine"</span>
+<span class="p">)</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">sentence_transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">models</span><span class="p">,</span> <span class="n">SentenceTransformer</span>
+
+<span class="c1"># Create your embedding model</span>
+<span class="n">word_embedding_model</span> <span class="o">=</span> <span class="n">models</span><span class="o">.</span><span class="n">Transformer</span><span class="p">(</span><span class="s1">'bert-base-uncased'</span><span class="p">)</span>
+<span class="n">pooling_model</span> <span class="o">=</span> <span class="n">models</span><span class="o">.</span><span class="n">Pooling</span><span class="p">(</span><span class="n">word_embedding_model</span><span class="o">.</span><span class="n">get_word_embedding_dimension</span><span class="p">(),</span> <span class="s1">'cls'</span><span class="p">)</span>
+<span class="n">embedding_model</span> <span class="o">=</span> <span class="n">SentenceTransformer</span><span class="p">(</span><span class="n">modules</span><span class="o">=</span><span class="p">[</span><span class="n">word_embedding_model</span><span class="p">,</span> <span class="n">pooling_model</span><span class="p">])</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">sentence_transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">losses</span>
+
+<span class="c1"># Use the denoising auto-encoder loss</span>
+<span class="n">train_loss</span> <span class="o">=</span> <span class="n">losses</span><span class="o">.</span><span class="n">DenoisingAutoEncoderLoss</span><span class="p">(</span>
+    <span class="n">embedding_model</span><span class="p">,</span> <span class="n">tie_encoder_decoder</span><span class="o">=</span><span class="kc">True</span>
+<span class="p">)</span>
+<span class="n">train_loss</span><span class="o">.</span><span class="n">decoder</span> <span class="o">=</span> <span class="n">train_loss</span><span class="o">.</span><span class="n">decoder</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="s2">"cuda"</span><span class="p">)</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">sentence_transformers.trainer</span><span class="w"> </span><span class="kn">import</span> <span class="n">SentenceTransformerTrainer</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">sentence_transformers.training_args</span><span class="w"> </span><span class="kn">import</span> <span class="n">SentenceTransformerTrainingArguments</span>
+
+<span class="c1"># Define the training arguments</span>
+<span class="n">args</span> <span class="o">=</span> <span class="n">SentenceTransformerTrainingArguments</span><span class="p">(</span>
+    <span class="n">output_dir</span><span class="o">=</span><span class="s2">"tsdae_embedding_model"</span><span class="p">,</span>
+    <span class="n">num_train_epochs</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">per_device_train_batch_size</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span>
+    <span class="n">per_device_eval_batch_size</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span>
+    <span class="n">warmup_steps</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span>
+    <span class="n">fp16</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">eval_steps</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span>
+    <span class="n">logging_steps</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="c1"># Train model</span>
+<span class="n">trainer</span> <span class="o">=</span> <span class="n">SentenceTransformerTrainer</span><span class="p">(</span>
+    <span class="n">model</span><span class="o">=</span><span class="n">embedding_model</span><span class="p">,</span>
+    <span class="n">args</span><span class="o">=</span><span class="n">args</span><span class="p">,</span>
+    <span class="n">train_dataset</span><span class="o">=</span><span class="n">train_dataset</span><span class="p">,</span>
+    <span class="n">loss</span><span class="o">=</span><span class="n">train_loss</span><span class="p">,</span>
+    <span class="n">evaluator</span><span class="o">=</span><span class="n">evaluator</span>
+<span class="p">)</span>
+<span class="n">trainer</span><span class="o">.</span><span class="n">train</span><span class="p">()</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Evaluate our trained model</span>
+<span class="n">evaluator</span><span class="p">(</span><span class="n">embedding_model</span><span class="p">)</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">gc</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+<span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">empty_cache</span><span class="p">()</span>
+</pre></div>
+</article><nav class="endnav" aria-label="章节底部导航"><a class="endlink" href="09.html" rel="prev"><span class="endk">上一章</span><span class="endt">Multimodal Large Language Models</span></a><a class="endlink next" href="11.html" rel="next"><span class="endk">下一章</span><span class="endt">Fine-tuning Representation Models for Classification</span></a></nav><p class="sourcerow"><a href="https://github.com/HandsOnLLM/Hands-On-Large-Language-Models/blob/main/chapter10/Chapter%2010%20-%20Creating%20Text%20Embedding%20Models.ipynb">上游笔记本源文件</a></p>
+</main>
+
+<footer class="site-footer">
+  <p>笔记本 © 2024 Jay Alammar &amp; Maarten Grootendorst，Apache-2.0。本阅读界面由 mate-matt 制作，是上游仓库的衍生排版，不改笔记本正文。</p>
+  <p>上游提交 <a href="https://github.com/HandsOnLLM/Hands-On-Large-Language-Models/commit/ea3390819997999a51983677b80b3aac4dc50ada">ea33908</a>
+  · <a href="../LICENSE">Apache-2.0</a>
+  · <a href="../NOTICE">NOTICE</a>
+  · <a href="https://github.com/HandsOnLLM/Hands-On-Large-Language-Models">上游仓库</a>
+  · <a href="https://github.com/mate-matt/hands-on-llm-reader">本仓库</a>
+  · <a href="../bonus/index.html">延伸阅读</a></p>
+</footer>
+
+</div>
+<noscript><p class="noscript-note shell">阅读进度存在这台浏览器里，需要 JavaScript。正文、代码和图片不依赖脚本。Plotly 图需要脚本才能画出来。</p></noscript>
+<script src="../js/reader.js"></script>
+</body>
+</html>

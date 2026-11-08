@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="format-detection" content="telephone=no">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#fbf9f6">
+<meta name="description" content="个人笔记本阅读镜像，不是 Hands-On Large Language Models 全书。内容来自 Apache-2.0 开源仓库。">
+<title>第 12 章 · Fine-tuning Generation Models</title>
+<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../css/pygments.css">
+<link rel="stylesheet" href="../css/reader.css">
+</head>
+<body data-chapter="12">
+<a class="skip" href="#content">跳到正文</a>
+<header class="topbar">
+  <div class="shell topbar-inner">
+    <a class="brand" href="../index.html">Hands-On LLM 笔记</a>
+    <nav class="chrome" aria-label="阅读导航"><a href="../index.html" >目录</a><a href="11.html" rel="prev">上一章</a><span class="is-disabled" aria-disabled="true">下一章</span><a href="https://colab.research.google.com/github/HandsOnLLM/Hands-On-Large-Language-Models/blob/main/chapter12/Chapter%2012%20-%20Fine-tuning%20Generation%20Models.ipynb" class="colab">在 Colab 打开</a><button type="button" data-done="12" aria-pressed="false">标为已读</button></nav>
+  </div>
+  <div class="scrollline" aria-hidden="true"><span id="scrollline"></span></div>
+</header>
+<div class="shell page">
+<main id="content">
+<p class="disclaimer"><strong>笔记本镜像，不是全书。</strong> 这是开源笔记仓库的个人阅读页，只收录 Apache-2.0 许可的 Jupyter 笔记本、bonus 简介，以及这些文件里原有的图片。不包括 O’Reilly 书的正文、未随仓库发布的插图或 PDF。 <a href="https://www.amazon.com/Hands-Large-Language-Models-Understanding/dp/1098150961">购买本书</a> · <a href="https://www.oreilly.com/library/view/hands-on-large-language/9781098150952/">O’Reilly</a> · <a href="https://github.com/HandsOnLLM/Hands-On-Large-Language-Models">上游 GitHub</a></p><p class="resume"><a href="#content" id="resume" hidden>回到上次位置</a></p><article class="cell cell-md"><div class="markdown" lang="en"><h1>Chapter 12 - Fine-tuning Generation Models</h1>
+<p><i>Exploring a two-step approach for fine-tuning generative LLMs.</i></p>
+<p><a class="text-badge badge-buy" href="https://www.amazon.com/Hands-Large-Language-Models-Understanding/dp/1098150961" target="_blank" rel="noopener noreferrer">Buy the Book</a>
+<a class="text-badge badge-oreilly" href="https://www.oreilly.com/library/view/hands-on-large-language/9781098150952/" target="_blank" rel="noopener noreferrer">O&#x27;Reilly</a>
+<a class="text-badge badge-github" href="https://github.com/HandsOnLLM/Hands-On-Large-Language-Models" target="_blank" rel="noopener noreferrer">GitHub Repository</a>
+<a href="https://colab.research.google.com/github/HandsOnLLM/Hands-On-Large-Language-Models/blob/main/chapter12/Chapter%2012%20-%20Fine-tuning%20Generation%20Models.ipynb" target="_blank" rel="noopener noreferrer"><img class="inline-badge" alt="Open In Colab" src="../assets/colab-badge.svg"></a></p>
+<hr>
+<p>This notebook is for Chapter 12 of the <a href="https://www.amazon.com/Hands-Large-Language-Models-Understanding/dp/1098150961" target="_blank" rel="noopener noreferrer">Hands-On Large Language Models</a> book by <a href="https://www.linkedin.com/in/jalammar" target="_blank" rel="noopener noreferrer">Jay Alammar</a> and <a href="https://www.linkedin.com/in/mgrootendorst/" target="_blank" rel="noopener noreferrer">Maarten Grootendorst</a>.</p>
+<hr>
+<p><a href="https://www.amazon.com/Hands-Large-Language-Models-Understanding/dp/1098150961" target="_blank" rel="noopener noreferrer">
+<img class="figure" src="../images/book_cover.png" width="350" alt="Hands-On Large Language Models book cover"></a></p></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h3>[OPTIONAL] - Installing Packages on <img class="inline-badge" src="../assets/colab-icon.png" width=100 alt="Google Colab"></h3>
+<p>If you are viewing this notebook on Google Colab (or any other cloud vendor), you need to <strong>uncomment and run</strong> the following codeblock to install the dependencies for this chapter:</p>
+<hr>
+<p>💡 <strong>NOTE</strong>: We will want to use a GPU to run the examples in this notebook. In Google Colab, go to
+<strong>Runtime &gt; Change runtime type &gt; Hardware accelerator &gt; GPU &gt; GPU type &gt; T4</strong>.</p>
+<hr></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># %%capture</span>
+<span class="c1"># !pip install -q accelerate==0.31.0 peft==0.11.1 bitsandbytes==0.43.1 transformers==4.41.2 trl==0.9.4 sentencepiece==0.2.0 triton==3.1.0</span>
+</pre></div>
+</article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h1>Supervised Fine-Tuning (SFT)</h1></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h2>Data Preprocessing</h2></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">AutoTokenizer</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">datasets</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_dataset</span>
+
+
+<span class="c1"># Load a tokenizer to use its chat template</span>
+<span class="n">template_tokenizer</span> <span class="o">=</span> <span class="n">AutoTokenizer</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="s2">"TinyLlama/TinyLlama-1.1B-Chat-v1.0"</span><span class="p">)</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">format_prompt</span><span class="p">(</span><span class="n">example</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""Format the prompt to using the &lt;|user|&gt; template TinyLLama is using"""</span>
+
+    <span class="c1"># Format answers</span>
+    <span class="n">chat</span> <span class="o">=</span> <span class="n">example</span><span class="p">[</span><span class="s2">"messages"</span><span class="p">]</span>
+    <span class="n">prompt</span> <span class="o">=</span> <span class="n">template_tokenizer</span><span class="o">.</span><span class="n">apply_chat_template</span><span class="p">(</span><span class="n">chat</span><span class="p">,</span> <span class="n">tokenize</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="p">{</span><span class="s2">"text"</span><span class="p">:</span> <span class="n">prompt</span><span class="p">}</span>
+
+<span class="c1"># Load and format the data using the template TinyLLama is using</span>
+<span class="n">dataset</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="n">load_dataset</span><span class="p">(</span><span class="s2">"HuggingFaceH4/ultrachat_200k"</span><span class="p">,</span>  <span class="n">split</span><span class="o">=</span><span class="s2">"test_sft"</span><span class="p">)</span>
+      <span class="o">.</span><span class="n">shuffle</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="mi">42</span><span class="p">)</span>
+      <span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="mi">3_000</span><span class="p">))</span>
+<span class="p">)</span>
+<span class="n">dataset</span> <span class="o">=</span> <span class="n">dataset</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="n">format_prompt</span><span class="p">)</span>
+</pre></div>
+<div class="outputs"><details class="log"><summary>运行日志 · /usr/local/lib/python3.10/dist-packages/huggingface_hub/utils/_token.py:89: UserWarning: </summary><pre class="stream stderr">/usr/local/lib/python3.10/dist-packages/huggingface_hub/utils/_token.py:89: UserWarning: 
+The secret `HF_TOKEN` does not exist in your Colab secrets.
+To authenticate with the Hugging Face Hub, create a token in your settings tab (https://huggingface.co/settings/tokens), set it as secret in your Google Colab and restart your session.
+You will be able to reuse this secret in all of your notebooks.
+Please note that authentication is recommended but still optional to access public models or datasets.
+  warnings.warn(
+</pre></details><details class="log"><summary>模型加载记录（交互控件，静态页只保留文字）</summary><pre class="stream">tokenizer_config.json:   0%|          | 0.00/1.29k [00:00&lt;?, ?B/s]
+tokenizer.model:   0%|          | 0.00/500k [00:00&lt;?, ?B/s]
+tokenizer.json:   0%|          | 0.00/1.84M [00:00&lt;?, ?B/s]
+special_tokens_map.json:   0%|          | 0.00/551 [00:00&lt;?, ?B/s]
+Downloading readme:   0%|          | 0.00/4.44k [00:00&lt;?, ?B/s]
+Downloading data:   0%|          | 0.00/244M [00:00&lt;?, ?B/s]
+Downloading data:   0%|          | 0.00/244M [00:00&lt;?, ?B/s]
+Downloading data:   0%|          | 0.00/244M [00:00&lt;?, ?B/s]
+Downloading data:   0%|          | 0.00/81.2M [00:00&lt;?, ?B/s]
+Downloading data:   0%|          | 0.00/244M [00:00&lt;?, ?B/s]
+Downloading data:   0%|          | 0.00/243M [00:00&lt;?, ?B/s]
+Downloading data:   0%|          | 0.00/243M [00:00&lt;?, ?B/s]
+Downloading data:   0%|          | 0.00/80.4M [00:00&lt;?, ?B/s]
+Generating train_sft split:   0%|          | 0/207865 [00:00&lt;?, ? examples/s]
+Generating test_sft split:   0%|          | 0/23110 [00:00&lt;?, ? examples/s]
+Generating train_gen split:   0%|          | 0/256032 [00:00&lt;?, ? examples/s]
+Generating test_gen split:   0%|          | 0/28304 [00:00&lt;?, ? examples/s]
+Map:   0%|          | 0/3000 [00:00&lt;?, ? examples/s]</pre></details></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Example of formatted prompt</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">dataset</span><span class="p">[</span><span class="s2">"text"</span><span class="p">][</span><span class="mi">2576</span><span class="p">])</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">&lt;|user|&gt;
+Given the text: Knock, knock. Who’s there? Hike.
+Can you continue the joke based on the given text material &quot;Knock, knock. Who’s there? Hike&quot;?&lt;/s&gt;
+&lt;|assistant|&gt;
+Sure! Knock, knock. Who&#x27;s there? Hike. Hike who? Hike up your pants, it&#x27;s cold outside!&lt;/s&gt;
+&lt;|user|&gt;
+Can you tell me another knock-knock joke based on the same text material &quot;Knock, knock. Who&#x27;s there? Hike&quot;?&lt;/s&gt;
+&lt;|assistant|&gt;
+Of course! Knock, knock. Who&#x27;s there? Hike. Hike who? Hike your way over here and let&#x27;s go for a walk!&lt;/s&gt;
+
+</pre></div></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h2>Models - Quantization</h2></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">AutoModelForCausalLM</span><span class="p">,</span> <span class="n">AutoTokenizer</span><span class="p">,</span> <span class="n">BitsAndBytesConfig</span>
+
+<span class="n">model_name</span> <span class="o">=</span> <span class="s2">"TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T"</span>
+
+<span class="c1"># 4-bit quantization configuration - Q in QLoRA</span>
+<span class="n">bnb_config</span> <span class="o">=</span> <span class="n">BitsAndBytesConfig</span><span class="p">(</span>
+    <span class="n">load_in_4bit</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>  <span class="c1"># Use 4-bit precision model loading</span>
+    <span class="n">bnb_4bit_quant_type</span><span class="o">=</span><span class="s2">"nf4"</span><span class="p">,</span>  <span class="c1"># Quantization type</span>
+    <span class="n">bnb_4bit_compute_dtype</span><span class="o">=</span><span class="s2">"float16"</span><span class="p">,</span>  <span class="c1"># Compute dtype</span>
+    <span class="n">bnb_4bit_use_double_quant</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>  <span class="c1"># Apply nested quantization</span>
+<span class="p">)</span>
+
+<span class="c1"># Load the model to train on the GPU</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">AutoModelForCausalLM</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span>
+    <span class="n">model_name</span><span class="p">,</span>
+    <span class="n">device_map</span><span class="o">=</span><span class="s2">"auto"</span><span class="p">,</span>
+
+    <span class="c1"># Leave this out for regular SFT</span>
+    <span class="n">quantization_config</span><span class="o">=</span><span class="n">bnb_config</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">model</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">use_cache</span> <span class="o">=</span> <span class="kc">False</span>
+<span class="n">model</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">pretraining_tp</span> <span class="o">=</span> <span class="mi">1</span>
+
+<span class="c1"># Load LLaMA tokenizer</span>
+<span class="n">tokenizer</span> <span class="o">=</span> <span class="n">AutoTokenizer</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="n">model_name</span><span class="p">,</span> <span class="n">trust_remote_code</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<span class="n">tokenizer</span><span class="o">.</span><span class="n">pad_token</span> <span class="o">=</span> <span class="s2">"&lt;PAD&gt;"</span>
+<span class="n">tokenizer</span><span class="o">.</span><span class="n">padding_side</span> <span class="o">=</span> <span class="s2">"left"</span>
+</pre></div>
+<div class="outputs"><details class="log"><summary>模型加载记录（交互控件，静态页只保留文字）</summary><pre class="stream">config.json:   0%|          | 0.00/560 [00:00&lt;?, ?B/s]
+model.safetensors:   0%|          | 0.00/4.40G [00:00&lt;?, ?B/s]
+generation_config.json:   0%|          | 0.00/129 [00:00&lt;?, ?B/s]
+tokenizer_config.json:   0%|          | 0.00/776 [00:00&lt;?, ?B/s]
+tokenizer.model:   0%|          | 0.00/500k [00:00&lt;?, ?B/s]
+tokenizer.json:   0%|          | 0.00/1.84M [00:00&lt;?, ?B/s]
+special_tokens_map.json:   0%|          | 0.00/414 [00:00&lt;?, ?B/s]</pre></details></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h2>Configuration</h2></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h3>LoRA Configuration</h3></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">peft</span><span class="w"> </span><span class="kn">import</span> <span class="n">LoraConfig</span><span class="p">,</span> <span class="n">prepare_model_for_kbit_training</span><span class="p">,</span> <span class="n">get_peft_model</span>
+
+<span class="c1"># Prepare LoRA Configuration</span>
+<span class="n">peft_config</span> <span class="o">=</span> <span class="n">LoraConfig</span><span class="p">(</span>
+    <span class="n">lora_alpha</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span>  <span class="c1"># LoRA Scaling</span>
+    <span class="n">lora_dropout</span><span class="o">=</span><span class="mf">0.1</span><span class="p">,</span>  <span class="c1"># Dropout for LoRA Layers</span>
+    <span class="n">r</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span>  <span class="c1"># Rank</span>
+    <span class="n">bias</span><span class="o">=</span><span class="s2">"none"</span><span class="p">,</span>
+    <span class="n">task_type</span><span class="o">=</span><span class="s2">"CAUSAL_LM"</span><span class="p">,</span>
+    <span class="n">target_modules</span><span class="o">=</span>  <span class="c1"># Layers to target</span>
+     <span class="p">[</span><span class="s1">'k_proj'</span><span class="p">,</span> <span class="s1">'gate_proj'</span><span class="p">,</span> <span class="s1">'v_proj'</span><span class="p">,</span> <span class="s1">'up_proj'</span><span class="p">,</span> <span class="s1">'q_proj'</span><span class="p">,</span> <span class="s1">'o_proj'</span><span class="p">,</span> <span class="s1">'down_proj'</span><span class="p">]</span>
+<span class="p">)</span>
+
+<span class="c1"># prepare model for training</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">prepare_model_for_kbit_training</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">get_peft_model</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">peft_config</span><span class="p">)</span>
+</pre></div>
+</article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h3>Training Configuration</h3></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">TrainingArguments</span>
+
+<span class="n">output_dir</span> <span class="o">=</span> <span class="s2">"./results"</span>
+
+<span class="c1"># Training arguments</span>
+<span class="n">training_arguments</span> <span class="o">=</span> <span class="n">TrainingArguments</span><span class="p">(</span>
+    <span class="n">output_dir</span><span class="o">=</span><span class="n">output_dir</span><span class="p">,</span>
+    <span class="n">per_device_train_batch_size</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+    <span class="n">gradient_accumulation_steps</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
+    <span class="n">optim</span><span class="o">=</span><span class="s2">"paged_adamw_32bit"</span><span class="p">,</span>
+    <span class="n">learning_rate</span><span class="o">=</span><span class="mf">2e-4</span><span class="p">,</span>
+    <span class="n">lr_scheduler_type</span><span class="o">=</span><span class="s2">"cosine"</span><span class="p">,</span>
+    <span class="n">num_train_epochs</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">logging_steps</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span>
+    <span class="n">fp16</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">gradient_checkpointing</span><span class="o">=</span><span class="kc">True</span>
+<span class="p">)</span>
+</pre></div>
+</article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h2>Training!</h2></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">trl</span><span class="w"> </span><span class="kn">import</span> <span class="n">SFTTrainer</span>
+
+<span class="c1"># Set supervised fine-tuning parameters</span>
+<span class="n">trainer</span> <span class="o">=</span> <span class="n">SFTTrainer</span><span class="p">(</span>
+    <span class="n">model</span><span class="o">=</span><span class="n">model</span><span class="p">,</span>
+    <span class="n">train_dataset</span><span class="o">=</span><span class="n">dataset</span><span class="p">,</span>
+    <span class="n">dataset_text_field</span><span class="o">=</span><span class="s2">"text"</span><span class="p">,</span>
+    <span class="n">tokenizer</span><span class="o">=</span><span class="n">tokenizer</span><span class="p">,</span>
+    <span class="n">args</span><span class="o">=</span><span class="n">training_arguments</span><span class="p">,</span>
+    <span class="n">max_seq_length</span><span class="o">=</span><span class="mi">512</span><span class="p">,</span>
+
+    <span class="c1"># Leave this out for regular SFT</span>
+    <span class="n">peft_config</span><span class="o">=</span><span class="n">peft_config</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="c1"># Train model</span>
+<span class="n">trainer</span><span class="o">.</span><span class="n">train</span><span class="p">()</span>
+
+<span class="c1"># Save QLoRA weights</span>
+<span class="n">trainer</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">save_pretrained</span><span class="p">(</span><span class="s2">"TinyLlama-1.1B-qlora"</span><span class="p">)</span>
+</pre></div>
+<div class="outputs"><details class="log"><summary>运行日志 · /usr/local/lib/python3.10/dist-packages/huggingface_hub/utils/_deprecation.py:100: FutureW</summary><pre class="stream stderr">/usr/local/lib/python3.10/dist-packages/huggingface_hub/utils/_deprecation.py:100: FutureWarning: Deprecated argument(s) used in &#x27;__init__&#x27;: dataset_text_field, max_seq_length. Will not be supported from version &#x27;1.0.0&#x27;.
+
+Deprecated positional argument(s) used in SFTTrainer, please use the SFTConfig to set these arguments instead.
+  warnings.warn(message, FutureWarning)
+/usr/local/lib/python3.10/dist-packages/transformers/training_args.py:1965: FutureWarning: `--push_to_hub_token` is deprecated and will be removed in version 5 of 🤗 Transformers. Use `--hub_token` instead.
+  warnings.warn(
+/usr/local/lib/python3.10/dist-packages/trl/trainer/sft_trainer.py:269: UserWarning: You passed a `max_seq_length` argument to the SFTTrainer, the value you passed will override the one in the `SFTConfig`.
+  warnings.warn(
+/usr/local/lib/python3.10/dist-packages/trl/trainer/sft_trainer.py:307: UserWarning: You passed a `dataset_text_field` argument to the SFTTrainer, the value you passed will override the one in the `SFTConfig`.
+  warnings.warn(
+</pre></details><div class="widget-log"><span class="tag">交互输出</span> 静态页不能运行这个控件，请用「在 Colab 打开」。<pre class="stream">Map:   0%|          | 0/3000 [00:00&lt;?, ? examples/s]</pre></div><details class="log"><summary>运行日志 · /usr/local/lib/python3.10/dist-packages/trl/trainer/sft_trainer.py:397: UserWarning: You p</summary><pre class="stream stderr">/usr/local/lib/python3.10/dist-packages/trl/trainer/sft_trainer.py:397: UserWarning: You passed a tokenizer with `padding_side` not equal to `right` to the SFTTrainer. This might lead to some unexpected behaviour due to overflow issues when training a model in half-precision. You might consider adding `tokenizer.padding_side = &#x27;right&#x27;` to your code.
+  warnings.warn(
+/usr/local/lib/python3.10/dist-packages/torch/utils/checkpoint.py:464: UserWarning: torch.utils.checkpoint: the use_reentrant parameter should be passed explicitly. In version 2.4 we will raise an exception if use_reentrant is not passed. use_reentrant=False is recommended, but if you need to preserve the current default behavior, you can pass use_reentrant=True. Refer to docs for more details on the differences between the two variants.
+  warnings.warn(
+</pre></details><div class="output"><div>
+      
+      <progress value='375' max='375' style='width:300px; height:20px; vertical-align: middle;'></progress>
+      [375/375 12:45, Epoch 1/1]
+    </div>
+    <div class="table-scroll"><table border="1" class="dataframe">
+  <thead>
+ <tr style="text-align: left;">
+      <th>Step</th>
+      <th>Training Loss</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>10</td>
+      <td>1.670600</td>
+    </tr>
+    <tr>
+      <td>20</td>
+      <td>1.475400</td>
+    </tr>
+    <tr>
+      <td>30</td>
+      <td>1.451400</td>
+    </tr>
+    <tr>
+      <td>40</td>
+      <td>1.487800</td>
+    </tr>
+    <tr>
+      <td>50</td>
+      <td>1.477900</td>
+    </tr>
+    <tr>
+      <td>60</td>
+      <td>1.390500</td>
+    </tr>
+    <tr>
+      <td>70</td>
+      <td>1.495200</td>
+    </tr>
+    <tr>
+      <td>80</td>
+      <td>1.450300</td>
+    </tr>
+    <tr>
+      <td>90</td>
+      <td>1.427900</td>
+    </tr>
+    <tr>
+      <td>100</td>
+      <td>1.404400</td>
+    </tr>
+    <tr>
+      <td>110</td>
+      <td>1.414400</td>
+    </tr>
+    <tr>
+      <td>120</td>
+      <td>1.377500</td>
+    </tr>
+    <tr>
+      <td>130</td>
+      <td>1.332100</td>
+    </tr>
+    <tr>
+      <td>140</td>
+      <td>1.497000</td>
+    </tr>
+    <tr>
+      <td>150</td>
+      <td>1.347000</td>
+    </tr>
+    <tr>
+      <td>160</td>
+      <td>1.411500</td>
+    </tr>
+    <tr>
+      <td>170</td>
+      <td>1.454000</td>
+    </tr>
+    <tr>
+      <td>180</td>
+      <td>1.324500</td>
+    </tr>
+    <tr>
+      <td>190</td>
+      <td>1.419300</td>
+    </tr>
+    <tr>
+      <td>200</td>
+      <td>1.474900</td>
+    </tr>
+    <tr>
+      <td>210</td>
+      <td>1.404600</td>
+    </tr>
+    <tr>
+      <td>220</td>
+      <td>1.342100</td>
+    </tr>
+    <tr>
+      <td>230</td>
+      <td>1.361100</td>
+    </tr>
+    <tr>
+      <td>240</td>
+      <td>1.387300</td>
+    </tr>
+    <tr>
+      <td>250</td>
+      <td>1.353700</td>
+    </tr>
+    <tr>
+      <td>260</td>
+      <td>1.345800</td>
+    </tr>
+    <tr>
+      <td>270</td>
+      <td>1.465400</td>
+    </tr>
+    <tr>
+      <td>280</td>
+      <td>1.434000</td>
+    </tr>
+    <tr>
+      <td>290</td>
+      <td>1.387600</td>
+    </tr>
+    <tr>
+      <td>300</td>
+      <td>1.376200</td>
+    </tr>
+    <tr>
+      <td>310</td>
+      <td>1.395000</td>
+    </tr>
+    <tr>
+      <td>320</td>
+      <td>1.437900</td>
+    </tr>
+    <tr>
+      <td>330</td>
+      <td>1.387200</td>
+    </tr>
+    <tr>
+      <td>340</td>
+      <td>1.388100</td>
+    </tr>
+    <tr>
+      <td>350</td>
+      <td>1.313600</td>
+    </tr>
+    <tr>
+      <td>360</td>
+      <td>1.444300</td>
+    </tr>
+    <tr>
+      <td>370</td>
+      <td>1.452000</td>
+    </tr>
+  </tbody>
+</table></div><p></div><div class="scrollbox"><pre class="stream stderr">/usr/local/lib/python3.10/dist-packages/huggingface_hub/file_download.py:1132: FutureWarning: `resume_download` is deprecated and will be removed in version 1.0.0. Downloads always resume when possible. If you want to force a new download, use `force_download=True`.
+  warnings.warn(
+</pre></div></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h3>Merge Adapter</h3></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">peft</span><span class="w"> </span><span class="kn">import</span> <span class="n">AutoPeftModelForCausalLM</span>
+
+<span class="n">model</span> <span class="o">=</span> <span class="n">AutoPeftModelForCausalLM</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span>
+    <span class="s2">"TinyLlama-1.1B-qlora"</span><span class="p">,</span>
+    <span class="n">low_cpu_mem_usage</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">device_map</span><span class="o">=</span><span class="s2">"auto"</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="c1"># Merge LoRA and base model</span>
+<span class="n">merged_model</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">merge_and_unload</span><span class="p">()</span>
+</pre></div>
+</article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h3>Inference</h3></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">pipeline</span>
+
+<span class="c1"># Use our predefined prompt template</span>
+<span class="n">prompt</span> <span class="o">=</span> <span class="s2">"""&lt;|user|&gt;</span>
+<span class="s2">Tell me something about Large Language Models.&lt;/s&gt;</span>
+<span class="s2">&lt;|assistant|&gt;</span>
+<span class="s2">"""</span>
+
+<span class="c1"># Run our instruction-tuned model</span>
+<span class="n">pipe</span> <span class="o">=</span> <span class="n">pipeline</span><span class="p">(</span><span class="n">task</span><span class="o">=</span><span class="s2">"text-generation"</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="n">merged_model</span><span class="p">,</span> <span class="n">tokenizer</span><span class="o">=</span><span class="n">tokenizer</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">pipe</span><span class="p">(</span><span class="n">prompt</span><span class="p">)[</span><span class="mi">0</span><span class="p">][</span><span class="s2">"generated_text"</span><span class="p">])</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">&lt;|user|&gt;
+Tell me something about Large Language Models.&lt;/s&gt;
+&lt;|assistant|&gt;
+Large Language Models (LLMs) are a type of artificial intelligence (AI) that can generate human-like language. They are trained on large amounts of data, including text, audio, and video, and are capable of generating complex and nuanced language.
+
+LLMs are used in a variety of applications, including natural language processing (NLP), machine translation, and chatbots. They can be used to generate text, speech, or images, and can be trained to understand different languages and dialects.
+
+One of the most significant applications of LLMs is in the field of natural language generation (NLG). LLMs can be used to generate text in a variety of languages, including English, French, and German. They can also be used to generate speech, such as in chatbots or voice assistants.
+
+LLMs have the potential to revolutionize the way we communicate and interact with each other. They can help us create more engaging and personalized content, and they can also help us understand each other better.
+</pre></div></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h1>Preference Tuning (PPO/DPO)</h1></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h2>Data Preprocessing</h2></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">datasets</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_dataset</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">format_prompt</span><span class="p">(</span><span class="n">example</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""Format the prompt to using the &lt;|user|&gt; template TinyLLama is using"""</span>
+
+    <span class="c1"># Format answers</span>
+    <span class="n">system</span> <span class="o">=</span> <span class="s2">"&lt;|system|&gt;</span><span class="se">\n</span><span class="s2">"</span> <span class="o">+</span> <span class="n">example</span><span class="p">[</span><span class="s1">'system'</span><span class="p">]</span> <span class="o">+</span> <span class="s2">"&lt;/s&gt;</span><span class="se">\n</span><span class="s2">"</span>
+    <span class="n">prompt</span> <span class="o">=</span> <span class="s2">"&lt;|user|&gt;</span><span class="se">\n</span><span class="s2">"</span> <span class="o">+</span> <span class="n">example</span><span class="p">[</span><span class="s1">'input'</span><span class="p">]</span> <span class="o">+</span> <span class="s2">"&lt;/s&gt;</span><span class="se">\n</span><span class="s2">&lt;|assistant|&gt;</span><span class="se">\n</span><span class="s2">"</span>
+    <span class="n">chosen</span> <span class="o">=</span> <span class="n">example</span><span class="p">[</span><span class="s1">'chosen'</span><span class="p">]</span> <span class="o">+</span> <span class="s2">"&lt;/s&gt;</span><span class="se">\n</span><span class="s2">"</span>
+    <span class="n">rejected</span> <span class="o">=</span> <span class="n">example</span><span class="p">[</span><span class="s1">'rejected'</span><span class="p">]</span> <span class="o">+</span> <span class="s2">"&lt;/s&gt;</span><span class="se">\n</span><span class="s2">"</span>
+
+    <span class="k">return</span> <span class="p">{</span>
+        <span class="s2">"prompt"</span><span class="p">:</span> <span class="n">system</span> <span class="o">+</span> <span class="n">prompt</span><span class="p">,</span>
+        <span class="s2">"chosen"</span><span class="p">:</span> <span class="n">chosen</span><span class="p">,</span>
+        <span class="s2">"rejected"</span><span class="p">:</span> <span class="n">rejected</span><span class="p">,</span>
+    <span class="p">}</span>
+
+<span class="c1"># Apply formatting to the dataset and select relatively short answers</span>
+<span class="n">dpo_dataset</span> <span class="o">=</span> <span class="n">load_dataset</span><span class="p">(</span><span class="s2">"argilla/distilabel-intel-orca-dpo-pairs"</span><span class="p">,</span> <span class="n">split</span><span class="o">=</span><span class="s2">"train"</span><span class="p">)</span>
+<span class="n">dpo_dataset</span> <span class="o">=</span> <span class="n">dpo_dataset</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span>
+    <span class="k">lambda</span> <span class="n">r</span><span class="p">:</span>
+        <span class="n">r</span><span class="p">[</span><span class="s2">"status"</span><span class="p">]</span> <span class="o">!=</span> <span class="s2">"tie"</span> <span class="ow">and</span>
+        <span class="n">r</span><span class="p">[</span><span class="s2">"chosen_score"</span><span class="p">]</span> <span class="o">&gt;=</span> <span class="mi">8</span> <span class="ow">and</span>
+        <span class="ow">not</span> <span class="n">r</span><span class="p">[</span><span class="s2">"in_gsm8k_train"</span><span class="p">]</span>
+<span class="p">)</span>
+<span class="n">dpo_dataset</span> <span class="o">=</span> <span class="n">dpo_dataset</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="n">format_prompt</span><span class="p">,</span> <span class="n">remove_columns</span><span class="o">=</span><span class="n">dpo_dataset</span><span class="o">.</span><span class="n">column_names</span><span class="p">)</span>
+<span class="n">dpo_dataset</span>
+</pre></div>
+<div class="outputs"><details class="log"><summary>模型加载记录（交互控件，静态页只保留文字）</summary><pre class="stream">Downloading readme:   0%|          | 0.00/10.1k [00:00&lt;?, ?B/s]
+Downloading data:   0%|          | 0.00/79.2M [00:00&lt;?, ?B/s]
+Generating train split:   0%|          | 0/12859 [00:00&lt;?, ? examples/s]
+Filter:   0%|          | 0/12859 [00:00&lt;?, ? examples/s]
+Map:   0%|          | 0/5922 [00:00&lt;?, ? examples/s]</pre></details><div class="scrollbox"><pre class="stream stdout">Dataset({
+    features: [&#x27;chosen&#x27;, &#x27;rejected&#x27;, &#x27;prompt&#x27;],
+    num_rows: 5922
+})</pre></div></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h2>Models - Quantization</h2></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">peft</span><span class="w"> </span><span class="kn">import</span> <span class="n">AutoPeftModelForCausalLM</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">BitsAndBytesConfig</span><span class="p">,</span> <span class="n">AutoTokenizer</span>
+
+<span class="c1"># 4-bit quantization configuration - Q in QLoRA</span>
+<span class="n">bnb_config</span> <span class="o">=</span> <span class="n">BitsAndBytesConfig</span><span class="p">(</span>
+    <span class="n">load_in_4bit</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>  <span class="c1"># Use 4-bit precision model loading</span>
+    <span class="n">bnb_4bit_quant_type</span><span class="o">=</span><span class="s2">"nf4"</span><span class="p">,</span>  <span class="c1"># Quantization type</span>
+    <span class="n">bnb_4bit_compute_dtype</span><span class="o">=</span><span class="s2">"float16"</span><span class="p">,</span>  <span class="c1"># Compute dtype</span>
+    <span class="n">bnb_4bit_use_double_quant</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>  <span class="c1"># Apply nested quantization</span>
+<span class="p">)</span>
+
+<span class="c1"># Merge LoRA and base model</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">AutoPeftModelForCausalLM</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span>
+    <span class="s2">"TinyLlama-1.1B-qlora"</span><span class="p">,</span>
+    <span class="n">low_cpu_mem_usage</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">device_map</span><span class="o">=</span><span class="s2">"auto"</span><span class="p">,</span>
+    <span class="n">quantization_config</span><span class="o">=</span><span class="n">bnb_config</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">merged_model</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">merge_and_unload</span><span class="p">()</span>
+
+<span class="c1"># Load LLaMA tokenizer</span>
+<span class="n">model_name</span> <span class="o">=</span> <span class="s2">"TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T"</span>
+<span class="n">tokenizer</span> <span class="o">=</span> <span class="n">AutoTokenizer</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="n">model_name</span><span class="p">,</span> <span class="n">trust_remote_code</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<span class="n">tokenizer</span><span class="o">.</span><span class="n">pad_token</span> <span class="o">=</span> <span class="s2">"&lt;PAD&gt;"</span>
+<span class="n">tokenizer</span><span class="o">.</span><span class="n">padding_side</span> <span class="o">=</span> <span class="s2">"left"</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stderr">/usr/local/lib/python3.10/dist-packages/peft/tuners/lora/bnb.py:325: UserWarning: Merge lora module to 4-bit linear may get different generations due to rounding errors.
+  warnings.warn(
+</pre></div></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h2>Configuration</h2></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">peft</span><span class="w"> </span><span class="kn">import</span> <span class="n">LoraConfig</span><span class="p">,</span> <span class="n">prepare_model_for_kbit_training</span><span class="p">,</span> <span class="n">get_peft_model</span>
+
+<span class="c1"># Prepare LoRA Configuration</span>
+<span class="n">peft_config</span> <span class="o">=</span> <span class="n">LoraConfig</span><span class="p">(</span>
+    <span class="n">lora_alpha</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span>  <span class="c1"># LoRA Scaling</span>
+    <span class="n">lora_dropout</span><span class="o">=</span><span class="mf">0.1</span><span class="p">,</span>  <span class="c1"># Dropout for LoRA Layers</span>
+    <span class="n">r</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span>  <span class="c1"># Rank</span>
+    <span class="n">bias</span><span class="o">=</span><span class="s2">"none"</span><span class="p">,</span>
+    <span class="n">task_type</span><span class="o">=</span><span class="s2">"CAUSAL_LM"</span><span class="p">,</span>
+    <span class="n">target_modules</span><span class="o">=</span>  <span class="c1"># Layers to target</span>
+     <span class="p">[</span><span class="s1">'k_proj'</span><span class="p">,</span> <span class="s1">'gate_proj'</span><span class="p">,</span> <span class="s1">'v_proj'</span><span class="p">,</span> <span class="s1">'up_proj'</span><span class="p">,</span> <span class="s1">'q_proj'</span><span class="p">,</span> <span class="s1">'o_proj'</span><span class="p">,</span> <span class="s1">'down_proj'</span><span class="p">]</span>
+<span class="p">)</span>
+
+<span class="c1"># prepare model for training</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">prepare_model_for_kbit_training</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">get_peft_model</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">peft_config</span><span class="p">)</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">trl</span><span class="w"> </span><span class="kn">import</span> <span class="n">DPOConfig</span>
+
+<span class="n">output_dir</span> <span class="o">=</span> <span class="s2">"./results"</span>
+
+<span class="c1"># Training arguments</span>
+<span class="n">training_arguments</span> <span class="o">=</span> <span class="n">DPOConfig</span><span class="p">(</span>
+    <span class="n">output_dir</span><span class="o">=</span><span class="n">output_dir</span><span class="p">,</span>
+    <span class="n">per_device_train_batch_size</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+    <span class="n">gradient_accumulation_steps</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
+    <span class="n">optim</span><span class="o">=</span><span class="s2">"paged_adamw_32bit"</span><span class="p">,</span>
+    <span class="n">learning_rate</span><span class="o">=</span><span class="mf">1e-5</span><span class="p">,</span>
+    <span class="n">lr_scheduler_type</span><span class="o">=</span><span class="s2">"cosine"</span><span class="p">,</span>
+    <span class="n">max_steps</span><span class="o">=</span><span class="mi">200</span><span class="p">,</span>
+    <span class="n">logging_steps</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span>
+    <span class="n">fp16</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">gradient_checkpointing</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">warmup_ratio</span><span class="o">=</span><span class="mf">0.1</span>
+<span class="p">)</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">trl</span><span class="w"> </span><span class="kn">import</span> <span class="n">DPOTrainer</span>
+
+<span class="c1"># Create DPO trainer</span>
+<span class="n">dpo_trainer</span> <span class="o">=</span> <span class="n">DPOTrainer</span><span class="p">(</span>
+    <span class="n">model</span><span class="p">,</span>
+    <span class="n">args</span><span class="o">=</span><span class="n">training_arguments</span><span class="p">,</span>
+    <span class="n">train_dataset</span><span class="o">=</span><span class="n">dpo_dataset</span><span class="p">,</span>
+    <span class="n">tokenizer</span><span class="o">=</span><span class="n">tokenizer</span><span class="p">,</span>
+    <span class="n">peft_config</span><span class="o">=</span><span class="n">peft_config</span><span class="p">,</span>
+    <span class="n">beta</span><span class="o">=</span><span class="mf">0.1</span><span class="p">,</span>
+    <span class="n">max_prompt_length</span><span class="o">=</span><span class="mi">512</span><span class="p">,</span>
+    <span class="n">max_length</span><span class="o">=</span><span class="mi">512</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="c1"># Fine-tune model with DPO</span>
+<span class="n">dpo_trainer</span><span class="o">.</span><span class="n">train</span><span class="p">()</span>
+
+<span class="c1"># Save adapter</span>
+<span class="n">dpo_trainer</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">save_pretrained</span><span class="p">(</span><span class="s2">"TinyLlama-1.1B-dpo-qlora"</span><span class="p">)</span>
+</pre></div>
+<div class="outputs"><details class="log"><summary>运行日志 · /usr/local/lib/python3.10/dist-packages/huggingface_hub/utils/_deprecation.py:100: FutureW</summary><pre class="stream stderr">/usr/local/lib/python3.10/dist-packages/huggingface_hub/utils/_deprecation.py:100: FutureWarning: Deprecated argument(s) used in &#x27;__init__&#x27;: max_prompt_length, max_length. Will not be supported from version &#x27;1.0.0&#x27;.
+
+Deprecated positional argument(s) used in DPOTrainer, please use the DPOConfig to set these arguments instead.
+  warnings.warn(message, FutureWarning)
+/usr/local/lib/python3.10/dist-packages/peft/tuners/lora/bnb.py:325: UserWarning: Merge lora module to 4-bit linear may get different generations due to rounding errors.
+  warnings.warn(
+/usr/local/lib/python3.10/dist-packages/trl/trainer/dpo_trainer.py:358: UserWarning: You passed `max_length` to the DPOTrainer, the value you passed will override the one in the `DPOConfig`.
+  warnings.warn(
+/usr/local/lib/python3.10/dist-packages/trl/trainer/dpo_trainer.py:371: UserWarning: You passed `max_prompt_length` to the DPOTrainer, the value you passed will override the one in the `DPOConfig`.
+  warnings.warn(
+/usr/local/lib/python3.10/dist-packages/trl/trainer/dpo_trainer.py:411: UserWarning: When using DPODataCollatorWithPadding, you should set `remove_unused_columns=False` in your TrainingArguments we have set it for you, but you should do it yourself in the future.
+  warnings.warn(
+</pre></details><div class="widget-log"><span class="tag">交互输出</span> 静态页不能运行这个控件，请用「在 Colab 打开」。<pre class="stream">Map:   0%|          | 0/5922 [00:00&lt;?, ? examples/s]</pre></div><details class="log"><summary>运行日志 · max_steps is given, it will override any value given in num_train_epochs</summary><pre class="stream stderr">max_steps is given, it will override any value given in num_train_epochs
+/usr/local/lib/python3.10/dist-packages/torch/utils/checkpoint.py:464: UserWarning: torch.utils.checkpoint: the use_reentrant parameter should be passed explicitly. In version 2.4 we will raise an exception if use_reentrant is not passed. use_reentrant=False is recommended, but if you need to preserve the current default behavior, you can pass use_reentrant=True. Refer to docs for more details on the differences between the two variants.
+  warnings.warn(
+/usr/local/lib/python3.10/dist-packages/torch/utils/checkpoint.py:91: UserWarning: None of the inputs have requires_grad=True. Gradients will be None
+  warnings.warn(
+Could not estimate the number of tokens of the input, floating-point operations will not be computed
+</pre></details><div class="output"><div>
+      
+      <progress value='200' max='200' style='width:300px; height:20px; vertical-align: middle;'></progress>
+      [200/200 12:52, Epoch 0/1]
+    </div>
+    <div class="table-scroll"><table border="1" class="dataframe">
+  <thead>
+ <tr style="text-align: left;">
+      <th>Step</th>
+      <th>Training Loss</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>10</td>
+      <td>0.692400</td>
+    </tr>
+    <tr>
+      <td>20</td>
+      <td>0.678200</td>
+    </tr>
+    <tr>
+      <td>30</td>
+      <td>0.646000</td>
+    </tr>
+    <tr>
+      <td>40</td>
+      <td>0.606300</td>
+    </tr>
+    <tr>
+      <td>50</td>
+      <td>0.595600</td>
+    </tr>
+    <tr>
+      <td>60</td>
+      <td>0.616800</td>
+    </tr>
+    <tr>
+      <td>70</td>
+      <td>0.593700</td>
+    </tr>
+    <tr>
+      <td>80</td>
+      <td>0.531900</td>
+    </tr>
+    <tr>
+      <td>90</td>
+      <td>0.559200</td>
+    </tr>
+    <tr>
+      <td>100</td>
+      <td>0.639000</td>
+    </tr>
+    <tr>
+      <td>110</td>
+      <td>0.496500</td>
+    </tr>
+    <tr>
+      <td>120</td>
+      <td>0.586000</td>
+    </tr>
+    <tr>
+      <td>130</td>
+      <td>0.630000</td>
+    </tr>
+    <tr>
+      <td>140</td>
+      <td>0.590100</td>
+    </tr>
+    <tr>
+      <td>150</td>
+      <td>0.577500</td>
+    </tr>
+    <tr>
+      <td>160</td>
+      <td>0.591000</td>
+    </tr>
+    <tr>
+      <td>170</td>
+      <td>0.606900</td>
+    </tr>
+    <tr>
+      <td>180</td>
+      <td>0.627800</td>
+    </tr>
+    <tr>
+      <td>190</td>
+      <td>0.668600</td>
+    </tr>
+    <tr>
+      <td>200</td>
+      <td>0.555400</td>
+    </tr>
+  </tbody>
+</table></div><p></div></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">peft</span><span class="w"> </span><span class="kn">import</span> <span class="n">PeftModel</span>
+
+<span class="c1"># Merge LoRA and base model</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">AutoPeftModelForCausalLM</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span>
+    <span class="s2">"TinyLlama-1.1B-qlora"</span><span class="p">,</span>
+    <span class="n">low_cpu_mem_usage</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">device_map</span><span class="o">=</span><span class="s2">"auto"</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">sft_model</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">merge_and_unload</span><span class="p">()</span>
+
+<span class="c1"># Merge DPO LoRA and SFT model</span>
+<span class="n">dpo_model</span> <span class="o">=</span> <span class="n">PeftModel</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span>
+    <span class="n">sft_model</span><span class="p">,</span>
+    <span class="s2">"TinyLlama-1.1B-dpo-qlora"</span><span class="p">,</span>
+    <span class="n">device_map</span><span class="o">=</span><span class="s2">"auto"</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">dpo_model</span> <span class="o">=</span> <span class="n">dpo_model</span><span class="o">.</span><span class="n">merge_and_unload</span><span class="p">()</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">pipeline</span>
+
+<span class="c1"># Use our predefined prompt template</span>
+<span class="n">prompt</span> <span class="o">=</span> <span class="s2">"""&lt;|user|&gt;</span>
+<span class="s2">Tell me something about Large Language Models.&lt;/s&gt;</span>
+<span class="s2">&lt;|assistant|&gt;</span>
+<span class="s2">"""</span>
+
+<span class="c1"># Run our instruction-tuned model</span>
+<span class="n">pipe</span> <span class="o">=</span> <span class="n">pipeline</span><span class="p">(</span><span class="n">task</span><span class="o">=</span><span class="s2">"text-generation"</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="n">dpo_model</span><span class="p">,</span> <span class="n">tokenizer</span><span class="o">=</span><span class="n">tokenizer</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">pipe</span><span class="p">(</span><span class="n">prompt</span><span class="p">)[</span><span class="mi">0</span><span class="p">][</span><span class="s2">"generated_text"</span><span class="p">])</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">&lt;|user|&gt;
+Tell me something about Large Language Models.&lt;/s&gt;
+&lt;|assistant|&gt;
+Large Language Models (LLMs) are a type of artificial intelligence (AI) that can generate human-like language. They are trained on large amounts of data, including text, audio, and video, and are capable of generating complex and nuanced language.
+
+LLMs are used in a variety of applications, including natural language processing (NLP), machine translation, and chatbots. They can be used to generate text, speech, or images, and can be trained to understand different languages and dialects.
+
+One of the most significant applications of LLMs is in the field of natural language generation (NLG). LLMs can be used to generate text in a variety of languages, including English, French, and German. They can also be used to generate speech, such as in chatbots or voice assistants.
+
+LLMs have the potential to revolutionize the way we communicate and interact with each other. They can help us create more engaging and personalized content, and they can also help us understand each other better.
+</pre></div></div></article><nav class="endnav" aria-label="章节底部导航"><a class="endlink" href="11.html" rel="prev"><span class="endk">上一章</span><span class="endt">Fine-tuning Representation Models for Classification</span></a><span class="endlink is-empty"></span></nav><p class="sourcerow"><a href="https://github.com/HandsOnLLM/Hands-On-Large-Language-Models/blob/main/chapter12/Chapter%2012%20-%20Fine-tuning%20Generation%20Models.ipynb">上游笔记本源文件</a></p>
+</main>
+
+<footer class="site-footer">
+  <p>笔记本 © 2024 Jay Alammar &amp; Maarten Grootendorst，Apache-2.0。本阅读界面由 mate-matt 制作，是上游仓库的衍生排版，不改笔记本正文。</p>
+  <p>上游提交 <a href="https://github.com/HandsOnLLM/Hands-On-Large-Language-Models/commit/ea3390819997999a51983677b80b3aac4dc50ada">ea33908</a>
+  · <a href="../LICENSE">Apache-2.0</a>
+  · <a href="../NOTICE">NOTICE</a>
+  · <a href="https://github.com/HandsOnLLM/Hands-On-Large-Language-Models">上游仓库</a>
+  · <a href="https://github.com/mate-matt/hands-on-llm-reader">本仓库</a>
+  · <a href="../bonus/index.html">延伸阅读</a></p>
+</footer>
+
+</div>
+<noscript><p class="noscript-note shell">阅读进度存在这台浏览器里，需要 JavaScript。正文、代码和图片不依赖脚本。Plotly 图需要脚本才能画出来。</p></noscript>
+<script src="../js/reader.js"></script>
+</body>
+</html>

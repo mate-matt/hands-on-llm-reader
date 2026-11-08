@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="format-detection" content="telephone=no">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#fbf9f6">
+<meta name="description" content="个人笔记本阅读镜像，不是 Hands-On Large Language Models 全书。内容来自 Apache-2.0 开源仓库。">
+<title>第 6 章 · Prompt Engineering</title>
+<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../css/pygments.css">
+<link rel="stylesheet" href="../css/reader.css">
+</head>
+<body data-chapter="06">
+<a class="skip" href="#content">跳到正文</a>
+<header class="topbar">
+  <div class="shell topbar-inner">
+    <a class="brand" href="../index.html">Hands-On LLM 笔记</a>
+    <nav class="chrome" aria-label="阅读导航"><a href="../index.html" >目录</a><a href="05.html" rel="prev">上一章</a><a href="07.html" rel="next">下一章</a><a href="https://colab.research.google.com/github/HandsOnLLM/Hands-On-Large-Language-Models/blob/main/chapter06/Chapter%206%20-%20Prompt%20Engineering.ipynb" class="colab">在 Colab 打开</a><button type="button" data-done="06" aria-pressed="false">标为已读</button></nav>
+  </div>
+  <div class="scrollline" aria-hidden="true"><span id="scrollline"></span></div>
+</header>
+<div class="shell page">
+<main id="content">
+<p class="disclaimer"><strong>笔记本镜像，不是全书。</strong> 这是开源笔记仓库的个人阅读页，只收录 Apache-2.0 许可的 Jupyter 笔记本、bonus 简介，以及这些文件里原有的图片。不包括 O’Reilly 书的正文、未随仓库发布的插图或 PDF。 <a href="https://www.amazon.com/Hands-Large-Language-Models-Understanding/dp/1098150961">购买本书</a> · <a href="https://www.oreilly.com/library/view/hands-on-large-language/9781098150952/">O’Reilly</a> · <a href="https://github.com/HandsOnLLM/Hands-On-Large-Language-Models">上游 GitHub</a></p><p class="resume"><a href="#content" id="resume" hidden>回到上次位置</a></p><article class="cell cell-md"><div class="markdown" lang="en"><h1>Chapter 6 - Prompt Engineering</h1>
+<p><i>Methods for improving the output through prompt engineering.</i></p>
+<p><a class="text-badge badge-buy" href="https://www.amazon.com/Hands-Large-Language-Models-Understanding/dp/1098150961" target="_blank" rel="noopener noreferrer">Buy the Book</a>
+<a class="text-badge badge-oreilly" href="https://www.oreilly.com/library/view/hands-on-large-language/9781098150952/" target="_blank" rel="noopener noreferrer">O&#x27;Reilly</a>
+<a class="text-badge badge-github" href="https://github.com/HandsOnLLM/Hands-On-Large-Language-Models" target="_blank" rel="noopener noreferrer">GitHub Repository</a>
+<a href="https://colab.research.google.com/github/HandsOnLLM/Hands-On-Large-Language-Models/blob/main/chapter06/Chapter%206%20-%20Prompt%20Engineering.ipynb" target="_blank" rel="noopener noreferrer"><img class="inline-badge" alt="Open In Colab" src="../assets/colab-badge.svg"></a></p>
+<hr>
+<p>This notebook is for Chapter 6 of the <a href="https://www.amazon.com/Hands-Large-Language-Models-Understanding/dp/1098150961" target="_blank" rel="noopener noreferrer">Hands-On Large Language Models</a> book by <a href="https://www.linkedin.com/in/jalammar" target="_blank" rel="noopener noreferrer">Jay Alammar</a> and <a href="https://www.linkedin.com/in/mgrootendorst/" target="_blank" rel="noopener noreferrer">Maarten Grootendorst</a>.</p>
+<hr>
+<p><a href="https://www.amazon.com/Hands-Large-Language-Models-Understanding/dp/1098150961" target="_blank" rel="noopener noreferrer">
+<img class="figure" src="../images/book_cover.png" width="350" alt="Hands-On Large Language Models book cover"></a></p></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h3>[OPTIONAL] - Installing Packages on <img class="inline-badge" src="../assets/colab-icon.png" width=100 alt="Google Colab"></h3>
+<p>If you are viewing this notebook on Google Colab (or any other cloud vendor), you need to <strong>uncomment and run</strong> the following codeblock to install the dependencies for this chapter:</p>
+<hr>
+<p>💡 <strong>NOTE</strong>: We will want to use a GPU to run the examples in this notebook. In Google Colab, go to
+<strong>Runtime &gt; Change runtime type &gt; Hardware accelerator &gt; GPU &gt; GPU type &gt; T4</strong>.</p>
+<hr></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># %%capture</span>
+<span class="c1"># !pip install langchain&gt;=0.1.17 openai&gt;=1.13.3 langchain_openai&gt;=0.1.6 transformers&gt;=4.40.1 datasets&gt;=2.18.0 accelerate&gt;=0.27.2 sentence-transformers&gt;=2.5.1 duckduckgo-search&gt;=5.2.2</span>
+<span class="c1"># !CMAKE_ARGS="-DLLAMA_CUBLAS=on" pip install llama-cpp-python</span>
+</pre></div>
+</article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h2>Loading our model</h2></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">AutoModelForCausalLM</span><span class="p">,</span> <span class="n">AutoTokenizer</span><span class="p">,</span> <span class="n">pipeline</span>
+
+<span class="c1"># Load model and tokenizer</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">AutoModelForCausalLM</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span>
+    <span class="s2">"microsoft/Phi-3-mini-4k-instruct"</span><span class="p">,</span>
+    <span class="n">device_map</span><span class="o">=</span><span class="s2">"cuda"</span><span class="p">,</span>
+    <span class="n">torch_dtype</span><span class="o">=</span><span class="s2">"auto"</span><span class="p">,</span>
+    <span class="n">trust_remote_code</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">tokenizer</span> <span class="o">=</span> <span class="n">AutoTokenizer</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="s2">"microsoft/Phi-3-mini-4k-instruct"</span><span class="p">)</span>
+
+<span class="c1"># Create a pipeline</span>
+<span class="n">pipe</span> <span class="o">=</span> <span class="n">pipeline</span><span class="p">(</span>
+    <span class="s2">"text-generation"</span><span class="p">,</span>
+    <span class="n">model</span><span class="o">=</span><span class="n">model</span><span class="p">,</span>
+    <span class="n">tokenizer</span><span class="o">=</span><span class="n">tokenizer</span><span class="p">,</span>
+    <span class="n">return_full_text</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+    <span class="n">max_new_tokens</span><span class="o">=</span><span class="mi">500</span><span class="p">,</span>
+    <span class="n">do_sample</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span>
+</pre></div>
+<div class="outputs"><details class="log"><summary>运行日志 · /usr/local/lib/python3.10/dist-packages/huggingface_hub/file_download.py:1132: FutureWarni</summary><pre class="stream stderr">/usr/local/lib/python3.10/dist-packages/huggingface_hub/file_download.py:1132: FutureWarning: `resume_download` is deprecated and will be removed in version 1.0.0. Downloads always resume when possible. If you want to force a new download, use `force_download=True`.
+  warnings.warn(
+/usr/local/lib/python3.10/dist-packages/huggingface_hub/utils/_token.py:89: UserWarning: 
+The secret `HF_TOKEN` does not exist in your Colab secrets.
+To authenticate with the Hugging Face Hub, create a token in your settings tab (https://huggingface.co/settings/tokens), set it as secret in your Google Colab and restart your session.
+You will be able to reuse this secret in all of your notebooks.
+Please note that authentication is recommended but still optional to access public models or datasets.
+  warnings.warn(
+WARNING:transformers_modules.microsoft.Phi-3-mini-4k-instruct.920b6cf52a79ecff578cc33f61922b23cbc88115.modeling_phi3:`flash-attention` package not found, consider installing for better performance: No module named &#x27;flash_attn&#x27;.
+WARNING:transformers_modules.microsoft.Phi-3-mini-4k-instruct.920b6cf52a79ecff578cc33f61922b23cbc88115.modeling_phi3:Current `flash-attenton` does not support `window_size`. Either upgrade or use `attn_implementation=&#x27;eager&#x27;`.
+</pre></details><div class="widget-log"><span class="tag">交互输出</span> 静态页不能运行这个控件，请用「在 Colab 打开」。<pre class="stream">Loading checkpoint shards:   0%|          | 0/2 [00:00&lt;?, ?it/s]</pre></div><div class="scrollbox"><pre class="stream stderr">Special tokens have been added in the vocabulary, make sure the associated word embeddings are fine-tuned or trained.
+</pre></div></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Prompt</span>
+<span class="n">messages</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="p">{</span><span class="s2">"role"</span><span class="p">:</span> <span class="s2">"user"</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="s2">"Create a funny joke about chickens."</span><span class="p">}</span>
+<span class="p">]</span>
+
+<span class="c1"># Generate the output</span>
+<span class="n">output</span> <span class="o">=</span> <span class="n">pipe</span><span class="p">(</span><span class="n">messages</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">output</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s2">"generated_text"</span><span class="p">])</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stderr">WARNING:transformers_modules.microsoft.Phi-3-mini-4k-instruct.920b6cf52a79ecff578cc33f61922b23cbc88115.modeling_phi3:You are not running the flash-attention implementation, expect numerical differences.
+</pre></div><div class="scrollbox"><pre class="stream stdout"> Why don&#x27;t chickens like to go to the gym? Because they can&#x27;t crack the egg-sistence of it!
+</pre></div></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Apply prompt template</span>
+<span class="n">prompt</span> <span class="o">=</span> <span class="n">pipe</span><span class="o">.</span><span class="n">tokenizer</span><span class="o">.</span><span class="n">apply_chat_template</span><span class="p">(</span><span class="n">messages</span><span class="p">,</span> <span class="n">tokenize</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">prompt</span><span class="p">)</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">&lt;s&gt;&lt;|user|&gt;
+Create a funny joke about chickens.&lt;|end|&gt;
+&lt;|assistant|&gt;
+
+</pre></div></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Using a high temperature</span>
+<span class="n">output</span> <span class="o">=</span> <span class="n">pipe</span><span class="p">(</span><span class="n">messages</span><span class="p">,</span> <span class="n">do_sample</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">temperature</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">output</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s2">"generated_text"</span><span class="p">])</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout"> Why don&#x27;t chickens ever play hide and seek? Because good luck hiding when everyone always goes to the henhouse!
+</pre></div></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Using a high top_p</span>
+<span class="n">output</span> <span class="o">=</span> <span class="n">pipe</span><span class="p">(</span><span class="n">messages</span><span class="p">,</span> <span class="n">do_sample</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">top_p</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">output</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s2">"generated_text"</span><span class="p">])</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout"> Why don&#x27;t chickens like math class? Because they can&#x27;t solve for &quot;x&quot; in their eggs!
+</pre></div></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h1><strong>Intro to Prompt Engineering</strong></h1></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h2>The Basic Ingredients of a Prompt</h2></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h1><strong>Advanced Prompt Engineering</strong></h1></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h2>Complex Prompt</h2></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Text to summarize which we stole from https://jalammar.github.io/illustrated-transformer/ ;)</span>
+<span class="n">text</span> <span class="o">=</span> <span class="s2">"""In the previous post, we looked at Attention – a ubiquitous method in modern deep learning models. Attention is a concept that helped improve the performance of neural machine translation applications. In this post, we will look at The Transformer – a model that uses attention to boost the speed with which these models can be trained. The Transformer outperforms the Google Neural Machine Translation model in specific tasks. The biggest benefit, however, comes from how The Transformer lends itself to parallelization. It is in fact Google Cloud’s recommendation to use The Transformer as a reference model to use their Cloud TPU offering. So let’s try to break the model apart and look at how it functions.</span>
+<span class="s2">The Transformer was proposed in the paper Attention is All You Need. A TensorFlow implementation of it is available as a part of the Tensor2Tensor package. Harvard’s NLP group created a guide annotating the paper with PyTorch implementation. In this post, we will attempt to oversimplify things a bit and introduce the concepts one by one to hopefully make it easier to understand to people without in-depth knowledge of the subject matter.</span>
+<span class="s2">Let’s begin by looking at the model as a single black box. In a machine translation application, it would take a sentence in one language, and output its translation in another.</span>
+<span class="s2">Popping open that Optimus Prime goodness, we see an encoding component, a decoding component, and connections between them.</span>
+<span class="s2">The encoding component is a stack of encoders (the paper stacks six of them on top of each other – there’s nothing magical about the number six, one can definitely experiment with other arrangements). The decoding component is a stack of decoders of the same number.</span>
+<span class="s2">The encoders are all identical in structure (yet they do not share weights). Each one is broken down into two sub-layers:</span>
+<span class="s2">The encoder’s inputs first flow through a self-attention layer – a layer that helps the encoder look at other words in the input sentence as it encodes a specific word. We’ll look closer at self-attention later in the post.</span>
+<span class="s2">The outputs of the self-attention layer are fed to a feed-forward neural network. The exact same feed-forward network is independently applied to each position.</span>
+<span class="s2">The decoder has both those layers, but between them is an attention layer that helps the decoder focus on relevant parts of the input sentence (similar what attention does in seq2seq models).</span>
+<span class="s2">Now that we’ve seen the major components of the model, let’s start to look at the various vectors/tensors and how they flow between these components to turn the input of a trained model into an output.</span>
+<span class="s2">As is the case in NLP applications in general, we begin by turning each input word into a vector using an embedding algorithm.</span>
+<span class="s2">Each word is embedded into a vector of size 512. We'll represent those vectors with these simple boxes.</span>
+<span class="s2">The embedding only happens in the bottom-most encoder. The abstraction that is common to all the encoders is that they receive a list of vectors each of the size 512 – In the bottom encoder that would be the word embeddings, but in other encoders, it would be the output of the encoder that’s directly below. The size of this list is hyperparameter we can set – basically it would be the length of the longest sentence in our training dataset.</span>
+<span class="s2">After embedding the words in our input sequence, each of them flows through each of the two layers of the encoder.</span>
+<span class="s2">Here we begin to see one key property of the Transformer, which is that the word in each position flows through its own path in the encoder. There are dependencies between these paths in the self-attention layer. The feed-forward layer does not have those dependencies, however, and thus the various paths can be executed in parallel while flowing through the feed-forward layer.</span>
+<span class="s2">Next, we’ll switch up the example to a shorter sentence and we’ll look at what happens in each sub-layer of the encoder.</span>
+<span class="s2">Now We’re Encoding!</span>
+<span class="s2">As we’ve mentioned already, an encoder receives a list of vectors as input. It processes this list by passing these vectors into a ‘self-attention’ layer, then into a feed-forward neural network, then sends out the output upwards to the next encoder.</span>
+<span class="s2">"""</span>
+
+<span class="c1"># Prompt components</span>
+<span class="n">persona</span> <span class="o">=</span> <span class="s2">"You are an expert in Large Language models. You excel at breaking down complex papers into digestible summaries.</span><span class="se">\n</span><span class="s2">"</span>
+<span class="n">instruction</span> <span class="o">=</span> <span class="s2">"Summarize the key findings of the paper provided.</span><span class="se">\n</span><span class="s2">"</span>
+<span class="n">context</span> <span class="o">=</span> <span class="s2">"Your summary should extract the most crucial points that can help researchers quickly understand the most vital information of the paper.</span><span class="se">\n</span><span class="s2">"</span>
+<span class="n">data_format</span> <span class="o">=</span> <span class="s2">"Create a bullet-point summary that outlines the method. Follow this up with a concise paragraph that encapsulates the main results.</span><span class="se">\n</span><span class="s2">"</span>
+<span class="n">audience</span> <span class="o">=</span> <span class="s2">"The summary is designed for busy researchers that quickly need to grasp the newest trends in Large Language Models.</span><span class="se">\n</span><span class="s2">"</span>
+<span class="n">tone</span> <span class="o">=</span> <span class="s2">"The tone should be professional and clear.</span><span class="se">\n</span><span class="s2">"</span>
+<span class="n">text</span> <span class="o">=</span> <span class="s2">"MY TEXT TO SUMMARIZE"</span>  <span class="c1"># Replace with your own text to summarize</span>
+<span class="n">data</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"Text to summarize: </span><span class="si">{</span><span class="n">text</span><span class="si">}</span><span class="s2">"</span>
+
+<span class="c1"># The full prompt - remove and add pieces to view its impact on the generated output</span>
+<span class="n">query</span> <span class="o">=</span> <span class="n">persona</span> <span class="o">+</span> <span class="n">instruction</span> <span class="o">+</span> <span class="n">context</span> <span class="o">+</span> <span class="n">data_format</span> <span class="o">+</span> <span class="n">audience</span> <span class="o">+</span> <span class="n">tone</span> <span class="o">+</span> <span class="n">data</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="n">messages</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="p">{</span><span class="s2">"role"</span><span class="p">:</span> <span class="s2">"user"</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="n">query</span><span class="p">}</span>
+<span class="p">]</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">tokenizer</span><span class="o">.</span><span class="n">apply_chat_template</span><span class="p">(</span><span class="n">messages</span><span class="p">,</span> <span class="n">tokenize</span><span class="o">=</span><span class="kc">False</span><span class="p">))</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">&lt;s&gt;&lt;|user|&gt;
+You are an expert in Large Language models. You excel at breaking down complex papers into digestible summaries.
+Summarize the key findings of the paper provided.
+Your summary should extract the most crucial points that can help researchers quickly understand the most vital information of the paper.
+Create a bullet-point summary that outlines the method. Follow this up with a concise paragraph that encapsulates the main results.
+The summary is designed for busy researchers that quickly need to grasp the newest trends in Large Language Models.
+The tone should be professional and clear.
+Text to summarize: MY TEXT TO SUMMARIZE&lt;|end|&gt;
+&lt;|assistant|&gt;
+
+</pre></div></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Generate the output</span>
+<span class="n">outputs</span> <span class="o">=</span> <span class="n">pipe</span><span class="p">(</span><span class="n">messages</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">outputs</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s2">"generated_text"</span><span class="p">])</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout"> Key Findings:
+
+- The Transformer model utilizes attention mechanisms to improve the speed and performance of deep learning models, particularly in neural machine translation tasks.
+- It outperforms the Google Neural Machine Translation model in specific tasks and is recommended by Google Cloud for their Cloud TPU offering.
+- The Transformer model consists of an encoding component and a decoding component, both composed of stacks of identical encoders and decoders.
+- The encoders use self-attention layers to process input sequences, while the decoders incorporate attention layers to focus on relevant parts of the input.
+- The model employs embedding algorithms to convert input words into vectors of size 512, which are then processed through the encoder&#x27;s layers.
+- The Transformer model&#x27;s architecture allows for parallelization, enabling faster training and improved performance.
+
+Summary:
+
+- The Transformer model, introduced in the paper &quot;Attention is All You Need,&quot; revolutionizes deep learning models by leveraging attention mechanisms to enhance performance and training speed.
+- It surpasses the Google Neural Machine Translation model in specific tasks and is recommended by Google Cloud for their Cloud TPU offering.
+- The model comprises an encoding component and a decoding component, each consisting of stacks of identical encoders and decoders.
+- Encoders utilize self-attention layers to process input sequences, while decoders incorporate attention layers to focus on relevant input parts.
+- Embedding algorithms convert input words into vectors of size 512, which are processed through the encoder&#x27;s layers.
+- The Transformer model&#x27;s architecture enables parallelization, resulting in faster training and improved performance.
+
+The Transformer model, introduced in the paper &quot;Attention is All You Need,&quot; revolutionizes deep learning models by leveraging attention mechanisms to enhance performance and training speed. It surpasses the Google Neural Machine Translation model in specific tasks and is recommended by Google Cloud for their Cloud TPU offering. The model comprises an encoding component and a decoding component, each consisting of stacks of identical encoders and decoders. Encoders utilize self-attention layers to process input sequences, while decoders incorporate attention layers to focus on relevant input parts. Embedding algorithms
+</pre></div></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h2>In-Context Learning: Providing Examples</h2></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Use a single example of using the made-up word in a sentence</span>
+<span class="n">one_shot_prompt</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="p">{</span>
+        <span class="s2">"role"</span><span class="p">:</span> <span class="s2">"user"</span><span class="p">,</span>
+        <span class="s2">"content"</span><span class="p">:</span> <span class="s2">"A 'Gigamuru' is a type of Japanese musical instrument. An example of a sentence that uses the word Gigamuru is:"</span>
+    <span class="p">},</span>
+    <span class="p">{</span>
+        <span class="s2">"role"</span><span class="p">:</span> <span class="s2">"assistant"</span><span class="p">,</span>
+        <span class="s2">"content"</span><span class="p">:</span> <span class="s2">"I have a Gigamuru that my uncle gave me as a gift. I love to play it at home."</span>
+    <span class="p">},</span>
+    <span class="p">{</span>
+        <span class="s2">"role"</span><span class="p">:</span> <span class="s2">"user"</span><span class="p">,</span>
+        <span class="s2">"content"</span><span class="p">:</span> <span class="s2">"To 'screeg' something is to swing a sword at it. An example of a sentence that uses the word screeg is:"</span>
+    <span class="p">}</span>
+<span class="p">]</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">tokenizer</span><span class="o">.</span><span class="n">apply_chat_template</span><span class="p">(</span><span class="n">one_shot_prompt</span><span class="p">,</span> <span class="n">tokenize</span><span class="o">=</span><span class="kc">False</span><span class="p">))</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">&lt;s&gt;&lt;|user|&gt;
+A &#x27;Gigamuru&#x27; is a type of Japanese musical instrument. An example of a sentence that uses the word Gigamuru is:&lt;|end|&gt;
+&lt;|assistant|&gt;
+I have a Gigamuru that my uncle gave me as a gift. I love to play it at home.&lt;|end|&gt;
+&lt;|user|&gt;
+To &#x27;screeg&#x27; something is to swing a sword at it. An example of a sentence that uses the word screeg is:&lt;|end|&gt;
+&lt;|assistant|&gt;
+
+</pre></div></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Generate the output</span>
+<span class="n">outputs</span> <span class="o">=</span> <span class="n">pipe</span><span class="p">(</span><span class="n">one_shot_prompt</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">outputs</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s2">"generated_text"</span><span class="p">])</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout"> During the intense duel, the knight skillfully screeged his opponent&#x27;s shield, forcing him to defend himself.
+</pre></div></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h2>Chain Prompting: Breaking up the Problem</h2></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Create name and slogan for a product</span>
+<span class="n">product_prompt</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="p">{</span><span class="s2">"role"</span><span class="p">:</span> <span class="s2">"user"</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="s2">"Create a name and slogan for a chatbot that leverages LLMs."</span><span class="p">}</span>
+<span class="p">]</span>
+<span class="n">outputs</span> <span class="o">=</span> <span class="n">pipe</span><span class="p">(</span><span class="n">product_prompt</span><span class="p">)</span>
+<span class="n">product_description</span> <span class="o">=</span> <span class="n">outputs</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s2">"generated_text"</span><span class="p">]</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">product_description</span><span class="p">)</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout"> Name: &quot;MindMeld Messenger&quot;
+
+Slogan: &quot;Unleashing Intelligent Conversations, One Response at a Time&quot;
+</pre></div></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Based on a name and slogan for a product, generate a sales pitch</span>
+<span class="n">sales_prompt</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="p">{</span><span class="s2">"role"</span><span class="p">:</span> <span class="s2">"user"</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"Generate a very short sales pitch for the following product: '</span><span class="si">{</span><span class="n">product_description</span><span class="si">}</span><span class="s2">'"</span><span class="p">}</span>
+<span class="p">]</span>
+<span class="n">outputs</span> <span class="o">=</span> <span class="n">pipe</span><span class="p">(</span><span class="n">sales_prompt</span><span class="p">)</span>
+<span class="n">sales_pitch</span> <span class="o">=</span> <span class="n">outputs</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s2">"generated_text"</span><span class="p">]</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">sales_pitch</span><span class="p">)</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout"> Introducing MindMeld Messenger - your ultimate communication partner! Unleash intelligent conversations with our innovative AI-powered messaging platform. With MindMeld Messenger, every response is thoughtful, personalized, and timely. Say goodbye to generic replies and hello to meaningful interactions. Elevate your communication game with MindMeld Messenger - where every message is a step towards smarter conversations. Try it now and experience the future of messaging!
+</pre></div></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h1><strong>Reasoning with Generative Models</strong></h1></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h2>Chain-of-Thought: Think Before Answering</h2></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># # Answering without explicit reasoning</span>
+<span class="c1"># standard_prompt = [</span>
+<span class="c1">#     {"role": "user", "content": "Roger has 5 tennis balls. He buys 2 more cans of tennis balls. Each can has 3 tennis balls. How many tennis balls does he have now?"},</span>
+<span class="c1">#     {"role": "assistant", "content": "11"},</span>
+<span class="c1">#     {"role": "user", "content": "The cafeteria had 25 apples. If they used 20 to make lunch and bought 6 more, how many apples do they have?"}</span>
+<span class="c1"># ]</span>
+
+<span class="c1"># # Run generative model</span>
+<span class="c1"># outputs = pipe(standard_prompt)</span>
+<span class="c1"># print(outputs[0]["generated_text"])</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout"> The cafeteria started with 25 apples. They used 20 apples to make lunch, so they had:
+
+25 - 20 = 5 apples left.
+
+Then they bought 6 more apples, so they now have:
+
+5 + 6 = 11 apples.
+</pre></div></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Answering with chain-of-thought</span>
+<span class="n">cot_prompt</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="p">{</span><span class="s2">"role"</span><span class="p">:</span> <span class="s2">"user"</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="s2">"Roger has 5 tennis balls. He buys 2 more cans of tennis balls. Each can has 3 tennis balls. How many tennis balls does he have now?"</span><span class="p">},</span>
+    <span class="p">{</span><span class="s2">"role"</span><span class="p">:</span> <span class="s2">"assistant"</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="s2">"Roger started with 5 balls. 2 cans of 3 tennis balls each is 6 tennis balls. 5 + 6 = 11. The answer is 11."</span><span class="p">},</span>
+    <span class="p">{</span><span class="s2">"role"</span><span class="p">:</span> <span class="s2">"user"</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="s2">"The cafeteria had 23 apples. If they used 20 to make lunch and bought 6 more, how many apples do they have?"</span><span class="p">}</span>
+<span class="p">]</span>
+
+<span class="c1"># Generate the output</span>
+<span class="n">outputs</span> <span class="o">=</span> <span class="n">pipe</span><span class="p">(</span><span class="n">cot_prompt</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">outputs</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s2">"generated_text"</span><span class="p">])</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stderr">You seem to be using the pipelines sequentially on GPU. In order to maximize efficiency please use a dataset
+</pre></div><div class="scrollbox"><pre class="stream stdout"> The cafeteria started with 23 apples. They used 20 apples, so they had 23 - 20 = 3 apples left. Then they bought 6 more apples, so they now have 3 + 6 = 9 apples. The answer is 9.
+</pre></div></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h2>Zero-shot Chain-of-Thought</h2></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Zero-shot Chain-of-Thought</span>
+<span class="n">zeroshot_cot_prompt</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="p">{</span><span class="s2">"role"</span><span class="p">:</span> <span class="s2">"user"</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="s2">"The cafeteria had 23 apples. If they used 20 to make lunch and bought 6 more, how many apples do they have? Let's think step-by-step."</span><span class="p">}</span>
+<span class="p">]</span>
+
+<span class="c1"># Generate the output</span>
+<span class="n">outputs</span> <span class="o">=</span> <span class="n">pipe</span><span class="p">(</span><span class="n">zeroshot_cot_prompt</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">outputs</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s2">"generated_text"</span><span class="p">])</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout"> Step 1: Start with the initial number of apples, which is 23.
+Step 2: Subtract the number of apples used to make lunch, which is 20. So, 23 - 20 = 3 apples remaining.
+Step 3: Add the number of apples bought, which is 6. So, 3 + 6 = 9 apples.
+
+The cafeteria now has 9 apples.
+</pre></div></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h2>Tree-of-Thought: Exploring Intermediate Steps</h2></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Zero-shot Chain-of-Thought</span>
+<span class="n">zeroshot_tot_prompt</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="p">{</span><span class="s2">"role"</span><span class="p">:</span> <span class="s2">"user"</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="s2">"Imagine three different experts are answering this question. All experts will write down 1 step of their thinking, then share it with the group. Then all experts will go on to the next step, etc. If any expert realises they're wrong at any point then they leave. The question is 'The cafeteria had 23 apples. If they used 20 to make lunch and bought 6 more, how many apples do they have?' Make sure to discuss the results."</span><span class="p">}</span>
+<span class="p">]</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Generate the output</span>
+<span class="n">outputs</span> <span class="o">=</span> <span class="n">pipe</span><span class="p">(</span><span class="n">zeroshot_tot_prompt</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">outputs</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s2">"generated_text"</span><span class="p">])</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout"> Expert 1: Step 1 - Start with the initial number of apples: 23 apples.
+
+Expert 2: Step 1 - Subtract the apples used for lunch: 23 - 20 = 3 apples remaining.
+
+Expert 3: Step 1 - Add the newly bought apples: 3 + 6 = 9 apples.
+
+
+Expert 1: Step 2 - Confirm the final count: The cafeteria has 9 apples.
+
+Expert 2: Step 2 - Review the calculations: 23 - 20 = 3, then 3 + 6 = 9. The calculations are correct.
+
+Expert 3: Step 2 - Agree with the result: The cafeteria indeed has 9 apples.
+
+
+All experts agree on the final count: The cafeteria has 9 apples.
+</pre></div></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h1><strong>Output Verification</strong></h1></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h2>Providing Examples</h2></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Zero-shot learning: Providing no examples</span>
+<span class="n">zeroshot_prompt</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="p">{</span><span class="s2">"role"</span><span class="p">:</span> <span class="s2">"user"</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="s2">"Create a character profile for an RPG game in JSON format."</span><span class="p">}</span>
+<span class="p">]</span>
+
+<span class="c1"># Generate the output</span>
+<span class="n">outputs</span> <span class="o">=</span> <span class="n">pipe</span><span class="p">(</span><span class="n">zeroshot_prompt</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">outputs</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s2">"generated_text"</span><span class="p">])</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout"> {
+  &quot;character_profile&quot;: {
+    &quot;name&quot;: &quot;Eldrin Stormbringer&quot;,
+    &quot;race&quot;: &quot;Human&quot;,
+    &quot;class&quot;: &quot;Warlock&quot;,
+    &quot;level&quot;: 5,
+    &quot;alignment&quot;: &quot;Chaotic Good&quot;,
+    &quot;attributes&quot;: {
+      &quot;strength&quot;: 8,
+      &quot;dexterity&quot;: 14,
+      &quot;constitution&quot;: 10,
+      &quot;intelligence&quot;: 12,
+      &quot;wisdom&quot;: 10,
+      &quot;charisma&quot;: 16
+    },
+    &quot;skills&quot;: [
+      {
+        &quot;name&quot;: &quot;Fireball&quot;,
+        &quot;proficiency&quot;: 18
+      },
+      {
+        &quot;name&quot;: &quot;Shadowstep&quot;,
+        &quot;proficiency&quot;: 16
+      },
+      {
+        &quot;name&quot;: &quot;Charm Person&quot;,
+        &quot;proficiency&quot;: 14
+      }
+    ],
+    &quot;equipment&quot;: [
+      {
+        &quot;name&quot;: &quot;Stormbringer Staff&quot;,
+        &quot;type&quot;: &quot;Magic Weapon&quot;,
+        &quot;damage&quot;: 15
+      },
+      {
+        &quot;name&quot;: &quot;Leather Armor&quot;,
+        &quot;type&quot;: &quot;Light Armor&quot;,
+        &quot;defense&quot;: 10
+      },
+      {
+        &quot;name&quot;: &quot;Ring of Protection&quot;,
+        &quot;type&quot;: &quot;Magic Armor&quot;,
+        &quot;defense&quot;: 5
+      }
+    ],
+    &quot;background&quot;: &quot;Eldrin grew up in a small village, where he was known for his mischievous nature and knack for getting into trouble. However, he discovered his affinity for magic and quickly became a skilled warlock, using his powers to protect his home and those he cares about.&quot;
+  }
+}
+</pre></div></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># One-shot learning: Providing an example of the output structure</span>
+<span class="n">one_shot_template</span> <span class="o">=</span> <span class="s2">"""Create a short character profile for an RPG game. Make sure to only use this format:</span>
+
+<span class="s2">{</span>
+<span class="s2">  "description": "A SHORT DESCRIPTION",</span>
+<span class="s2">  "name": "THE CHARACTER'S NAME",</span>
+<span class="s2">  "armor": "ONE PIECE OF ARMOR",</span>
+<span class="s2">  "weapon": "ONE OR MORE WEAPONS"</span>
+<span class="s2">}</span>
+<span class="s2">"""</span>
+<span class="n">one_shot_prompt</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="p">{</span><span class="s2">"role"</span><span class="p">:</span> <span class="s2">"user"</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="n">one_shot_template</span><span class="p">}</span>
+<span class="p">]</span>
+
+<span class="c1"># Generate the output</span>
+<span class="n">outputs</span> <span class="o">=</span> <span class="n">pipe</span><span class="p">(</span><span class="n">one_shot_prompt</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">outputs</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s2">"generated_text"</span><span class="p">])</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout"> {
+  &quot;description&quot;: &quot;A cunning rogue with a mysterious past, skilled in stealth and deception.&quot;,
+  &quot;name&quot;: &quot;Lysandra Shadowstep&quot;,
+  &quot;armor&quot;: &quot;Leather Cloak of the Night&quot;,
+  &quot;weapon&quot;: &quot;Dagger of Whispers, Throwing Knives&quot;
+}
+</pre></div></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h2>Grammar: Constrained Sampling</h2></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">gc</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+<span class="k">del</span> <span class="n">model</span><span class="p">,</span> <span class="n">tokenizer</span><span class="p">,</span> <span class="n">pipe</span>
+
+<span class="c1"># Flush memory</span>
+<span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+<span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">empty_cache</span><span class="p">()</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">llama_cpp.llama</span><span class="w"> </span><span class="kn">import</span> <span class="n">Llama</span>
+
+<span class="c1"># Load Phi-3</span>
+<span class="n">llm</span> <span class="o">=</span> <span class="n">Llama</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span>
+    <span class="n">repo_id</span><span class="o">=</span><span class="s2">"microsoft/Phi-3-mini-4k-instruct-gguf"</span><span class="p">,</span>
+    <span class="n">filename</span><span class="o">=</span><span class="s2">"*fp16.gguf"</span><span class="p">,</span>
+    <span class="n">n_gpu_layers</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">n_ctx</span><span class="o">=</span><span class="mi">2048</span><span class="p">,</span>
+    <span class="n">verbose</span><span class="o">=</span><span class="kc">False</span>
+<span class="p">)</span>
+</pre></div>
+<div class="outputs"><details class="log"><summary>运行日志 · /usr/local/lib/python3.10/dist-packages/huggingface_hub/utils/_token.py:89: UserWarning: </summary><pre class="stream stderr">/usr/local/lib/python3.10/dist-packages/huggingface_hub/utils/_token.py:89: UserWarning: 
+The secret `HF_TOKEN` does not exist in your Colab secrets.
+To authenticate with the Hugging Face Hub, create a token in your settings tab (https://huggingface.co/settings/tokens), set it as secret in your Google Colab and restart your session.
+You will be able to reuse this secret in all of your notebooks.
+Please note that authentication is recommended but still optional to access public models or datasets.
+  warnings.warn(
+</pre></details></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Generate output</span>
+<span class="n">output</span> <span class="o">=</span> <span class="n">llm</span><span class="o">.</span><span class="n">create_chat_completion</span><span class="p">(</span>
+    <span class="n">messages</span><span class="o">=</span><span class="p">[</span>
+        <span class="p">{</span><span class="s2">"role"</span><span class="p">:</span> <span class="s2">"user"</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="s2">"Create a warrior for an RPG in JSON format."</span><span class="p">},</span>
+    <span class="p">],</span>
+    <span class="n">response_format</span><span class="o">=</span><span class="p">{</span><span class="s2">"type"</span><span class="p">:</span> <span class="s2">"json_object"</span><span class="p">},</span>
+    <span class="n">temperature</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+<span class="p">)[</span><span class="s1">'choices'</span><span class="p">][</span><span class="mi">0</span><span class="p">][</span><span class="s1">'message'</span><span class="p">][</span><span class="s2">"content"</span><span class="p">]</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+
+<span class="c1"># Format as json</span>
+<span class="n">json_output</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">output</span><span class="p">),</span> <span class="n">indent</span><span class="o">=</span><span class="mi">4</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">json_output</span><span class="p">)</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">{
+    &quot;name&quot;: &quot;Eldrin Stormbringer&quot;,
+    &quot;class&quot;: &quot;Ranger&quot;,
+    &quot;level&quot;: 5,
+    &quot;attributes&quot;: {
+        &quot;strength&quot;: 14,
+        &quot;dexterity&quot;: 18,
+        &quot;constitution&quot;: 12,
+        &quot;intelligence&quot;: 10,
+        &quot;wisdom&quot;: 13,
+        &quot;charisma&quot;: 9
+    },
+    &quot;skills&quot;: {
+        &quot;archery&quot;: {
+            &quot;proficiency&quot;: 20,
+            &quot;critical_hit_chance&quot;: 5,
+            &quot;damage_range&quot;: [
+                8,
+                14
+            ]
+        },
+        &quot;stealth&quot;: {
+            &quot;proficiency&quot;: 17,
+            &quot;critical_hit_chance&quot;: 3,
+            &quot;damage_range&quot;: [
+                2,
+                6
+            ]
+        },
+        &quot;nature_magic&quot;: {
+            &quot;proficiency&quot;: 15,
+            &quot;critical_hit_chance&quot;: 4,
+            &quot;healing_range&quot;: [
+                3,
+                7
+            ],
+            &quot;damage_range&quot;: [
+                -2,
+                2
+            ]
+        }
+    },
+    &quot;equipment&quot;: {
+        &quot;weapons&quot;: [
+            &quot;Longbow&quot;,
+            &quot;Dagger&quot;
+        ],
+        &quot;armor&quot;: &quot;Leather Armor&quot;,
+        &quot;accessories&quot;: [
+            &quot;Boots of Speed&quot;,
+            &quot;Ring of Protection&quot;
+        ]
+    },
+    &quot;background&quot;: &quot;Eldrin grew up in the wilderness, learning to hunt and track from his father. He became a skilled ranger after joining a group of adventurers.&quot;
+}
+</pre></div></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span>
+</pre></div>
+</article><nav class="endnav" aria-label="章节底部导航"><a class="endlink" href="05.html" rel="prev"><span class="endk">上一章</span><span class="endt">Text Clustering and Topic Modeling</span></a><a class="endlink next" href="07.html" rel="next"><span class="endk">下一章</span><span class="endt">Advanced Text Generation Techniques and Tools</span></a></nav><p class="sourcerow"><a href="https://github.com/HandsOnLLM/Hands-On-Large-Language-Models/blob/main/chapter06/Chapter%206%20-%20Prompt%20Engineering.ipynb">上游笔记本源文件</a></p>
+</main>
+
+<footer class="site-footer">
+  <p>笔记本 © 2024 Jay Alammar &amp; Maarten Grootendorst，Apache-2.0。本阅读界面由 mate-matt 制作，是上游仓库的衍生排版，不改笔记本正文。</p>
+  <p>上游提交 <a href="https://github.com/HandsOnLLM/Hands-On-Large-Language-Models/commit/ea3390819997999a51983677b80b3aac4dc50ada">ea33908</a>
+  · <a href="../LICENSE">Apache-2.0</a>
+  · <a href="../NOTICE">NOTICE</a>
+  · <a href="https://github.com/HandsOnLLM/Hands-On-Large-Language-Models">上游仓库</a>
+  · <a href="https://github.com/mate-matt/hands-on-llm-reader">本仓库</a>
+  · <a href="../bonus/index.html">延伸阅读</a></p>
+</footer>
+
+</div>
+<noscript><p class="noscript-note shell">阅读进度存在这台浏览器里，需要 JavaScript。正文、代码和图片不依赖脚本。Plotly 图需要脚本才能画出来。</p></noscript>
+<script src="../js/reader.js"></script>
+</body>
+</html>

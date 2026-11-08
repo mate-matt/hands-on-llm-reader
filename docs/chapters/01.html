@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="format-detection" content="telephone=no">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#fbf9f6">
+<meta name="description" content="个人笔记本阅读镜像，不是 Hands-On Large Language Models 全书。内容来自 Apache-2.0 开源仓库。">
+<title>第 1 章 · Introduction to Language Models</title>
+<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../css/pygments.css">
+<link rel="stylesheet" href="../css/reader.css">
+</head>
+<body data-chapter="01">
+<a class="skip" href="#content">跳到正文</a>
+<header class="topbar">
+  <div class="shell topbar-inner">
+    <a class="brand" href="../index.html">Hands-On LLM 笔记</a>
+    <nav class="chrome" aria-label="阅读导航"><a href="../index.html" >目录</a><span class="is-disabled" aria-disabled="true">上一章</span><a href="02.html" rel="next">下一章</a><a href="https://colab.research.google.com/github/HandsOnLLM/Hands-On-Large-Language-Models/blob/main/chapter01/Chapter%201%20-%20Introduction%20to%20Language%20Models.ipynb" class="colab">在 Colab 打开</a><button type="button" data-done="01" aria-pressed="false">标为已读</button></nav>
+  </div>
+  <div class="scrollline" aria-hidden="true"><span id="scrollline"></span></div>
+</header>
+<div class="shell page">
+<main id="content">
+<p class="disclaimer"><strong>笔记本镜像，不是全书。</strong> 这是开源笔记仓库的个人阅读页，只收录 Apache-2.0 许可的 Jupyter 笔记本、bonus 简介，以及这些文件里原有的图片。不包括 O’Reilly 书的正文、未随仓库发布的插图或 PDF。 <a href="https://www.amazon.com/Hands-Large-Language-Models-Understanding/dp/1098150961">购买本书</a> · <a href="https://www.oreilly.com/library/view/hands-on-large-language/9781098150952/">O’Reilly</a> · <a href="https://github.com/HandsOnLLM/Hands-On-Large-Language-Models">上游 GitHub</a></p><p class="resume"><a href="#content" id="resume" hidden>回到上次位置</a></p><article class="cell cell-md"><div class="markdown" lang="en"><h1>Chapter 1 - Introduction to Language Models</h1>
+<p><i>Exploring the exciting field of Language AI</i></p>
+<p><a class="text-badge badge-buy" href="https://www.amazon.com/Hands-Large-Language-Models-Understanding/dp/1098150961" target="_blank" rel="noopener noreferrer">Buy the Book</a>
+<a class="text-badge badge-oreilly" href="https://www.oreilly.com/library/view/hands-on-large-language/9781098150952/" target="_blank" rel="noopener noreferrer">O&#x27;Reilly</a>
+<a class="text-badge badge-github" href="https://github.com/HandsOnLLM/Hands-On-Large-Language-Models" target="_blank" rel="noopener noreferrer">GitHub Repository</a>
+<a href="https://colab.research.google.com/github/HandsOnLLM/Hands-On-Large-Language-Models/blob/main/chapter01/Chapter%201%20-%20Introduction%20to%20Language%20Models.ipynb" target="_blank" rel="noopener noreferrer"><img class="inline-badge" alt="Open In Colab" src="../assets/colab-badge.svg"></a></p>
+<hr>
+<p>This notebook is for Chapter 1 of the <a href="https://www.amazon.com/Hands-Large-Language-Models-Understanding/dp/1098150961" target="_blank" rel="noopener noreferrer">Hands-On Large Language Models</a> book by <a href="https://www.linkedin.com/in/jalammar" target="_blank" rel="noopener noreferrer">Jay Alammar</a> and <a href="https://www.linkedin.com/in/mgrootendorst/" target="_blank" rel="noopener noreferrer">Maarten Grootendorst</a>.</p>
+<hr>
+<p><a href="https://www.amazon.com/Hands-Large-Language-Models-Understanding/dp/1098150961" target="_blank" rel="noopener noreferrer">
+<img class="figure" src="../images/book_cover.png" width="350" alt="Hands-On Large Language Models book cover"></a></p></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h3>[OPTIONAL] - Installing Packages on <img class="inline-badge" src="../assets/colab-icon.png" width=100 alt="Google Colab"></h3>
+<p>If you are viewing this notebook on Google Colab (or any other cloud vendor), you need to <strong>uncomment and run</strong> the following codeblock to install the dependencies for this chapter:</p></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><hr>
+<p>💡 <strong>NOTE</strong>: We will want to use a GPU to run the examples in this notebook. In Google Colab, go to
+<strong>Runtime &gt; Change runtime type &gt; Hardware accelerator &gt; GPU &gt; GPU type &gt; T4</strong>.</p>
+<hr></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># %%capture</span>
+<span class="c1"># !pip install transformers==4.41.2 accelerate==0.31.0</span>
+</pre></div>
+</article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h1>Phi-3</h1>
+<p>The first step is to load our model onto the GPU for faster inference. Note that we load the model and tokenizer separately (although that isn't always necessary).</p></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">AutoModelForCausalLM</span><span class="p">,</span> <span class="n">AutoTokenizer</span>
+
+<span class="c1"># Load model and tokenizer</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">AutoModelForCausalLM</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span>
+    <span class="s2">"microsoft/Phi-3-mini-4k-instruct"</span><span class="p">,</span>
+    <span class="n">device_map</span><span class="o">=</span><span class="s2">"cuda"</span><span class="p">,</span>
+    <span class="n">torch_dtype</span><span class="o">=</span><span class="s2">"auto"</span><span class="p">,</span>
+    <span class="n">trust_remote_code</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">tokenizer</span> <span class="o">=</span> <span class="n">AutoTokenizer</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="s2">"microsoft/Phi-3-mini-4k-instruct"</span><span class="p">)</span>
+</pre></div>
+</article>
+<article class="cell cell-md"><div class="markdown" lang="en"><p>Although we can now use the model and tokenizer directly, it's much easier to wrap it in a <code>pipeline</code> object:</p></div></article>
+<article class="cell cell-code"><p class="cell-label">In [2]</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">pipeline</span>
+
+<span class="c1"># Create a pipeline</span>
+<span class="n">generator</span> <span class="o">=</span> <span class="n">pipeline</span><span class="p">(</span>
+    <span class="s2">"text-generation"</span><span class="p">,</span>
+    <span class="n">model</span><span class="o">=</span><span class="n">model</span><span class="p">,</span>
+    <span class="n">tokenizer</span><span class="o">=</span><span class="n">tokenizer</span><span class="p">,</span>
+    <span class="n">return_full_text</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+    <span class="n">max_new_tokens</span><span class="o">=</span><span class="mi">500</span><span class="p">,</span>
+    <span class="n">do_sample</span><span class="o">=</span><span class="kc">False</span>
+<span class="p">)</span>
+</pre></div>
+</article>
+<article class="cell cell-md"><div class="markdown" lang="en"><p>Finally, we create our prompt as a user and give it to the model:</p></div></article>
+<article class="cell cell-code"><p class="cell-label">In [4]</p><div class="codehilite"><pre><span></span><span class="c1"># The prompt (user input / query)</span>
+<span class="n">messages</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="p">{</span><span class="s2">"role"</span><span class="p">:</span> <span class="s2">"user"</span><span class="p">,</span> <span class="s2">"content"</span><span class="p">:</span> <span class="s2">"Create a funny joke about chickens."</span><span class="p">}</span>
+<span class="p">]</span>
+
+<span class="c1"># Generate output</span>
+<span class="n">output</span> <span class="o">=</span> <span class="n">generator</span><span class="p">(</span><span class="n">messages</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">output</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s2">"generated_text"</span><span class="p">])</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout"> Why did the chicken join the band? Because it had the drumsticks!
+</pre></div></div></article><nav class="endnav" aria-label="章节底部导航"><span class="endlink is-empty"></span><a class="endlink next" href="02.html" rel="next"><span class="endk">下一章</span><span class="endt">Tokens and Embeddings</span></a></nav><p class="sourcerow"><a href="https://github.com/HandsOnLLM/Hands-On-Large-Language-Models/blob/main/chapter01/Chapter%201%20-%20Introduction%20to%20Language%20Models.ipynb">上游笔记本源文件</a></p>
+</main>
+
+<footer class="site-footer">
+  <p>笔记本 © 2024 Jay Alammar &amp; Maarten Grootendorst，Apache-2.0。本阅读界面由 mate-matt 制作，是上游仓库的衍生排版，不改笔记本正文。</p>
+  <p>上游提交 <a href="https://github.com/HandsOnLLM/Hands-On-Large-Language-Models/commit/ea3390819997999a51983677b80b3aac4dc50ada">ea33908</a>
+  · <a href="../LICENSE">Apache-2.0</a>
+  · <a href="../NOTICE">NOTICE</a>
+  · <a href="https://github.com/HandsOnLLM/Hands-On-Large-Language-Models">上游仓库</a>
+  · <a href="https://github.com/mate-matt/hands-on-llm-reader">本仓库</a>
+  · <a href="../bonus/index.html">延伸阅读</a></p>
+</footer>
+
+</div>
+<noscript><p class="noscript-note shell">阅读进度存在这台浏览器里，需要 JavaScript。正文、代码和图片不依赖脚本。Plotly 图需要脚本才能画出来。</p></noscript>
+<script src="../js/reader.js"></script>
+</body>
+</html>

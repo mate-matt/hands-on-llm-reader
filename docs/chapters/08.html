@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="format-detection" content="telephone=no">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#fbf9f6">
+<meta name="description" content="个人笔记本阅读镜像，不是 Hands-On Large Language Models 全书。内容来自 Apache-2.0 开源仓库。">
+<title>第 8 章 · Semantic Search and Retrieval-Augmented Generation</title>
+<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../css/pygments.css">
+<link rel="stylesheet" href="../css/reader.css">
+</head>
+<body data-chapter="08">
+<a class="skip" href="#content">跳到正文</a>
+<header class="topbar">
+  <div class="shell topbar-inner">
+    <a class="brand" href="../index.html">Hands-On LLM 笔记</a>
+    <nav class="chrome" aria-label="阅读导航"><a href="../index.html" >目录</a><a href="07.html" rel="prev">上一章</a><a href="09.html" rel="next">下一章</a><a href="https://colab.research.google.com/github/HandsOnLLM/Hands-On-Large-Language-Models/blob/main/chapter08/Chapter%208%20-%20Semantic%20Search.ipynb" class="colab">在 Colab 打开</a><button type="button" data-done="08" aria-pressed="false">标为已读</button></nav>
+  </div>
+  <div class="scrollline" aria-hidden="true"><span id="scrollline"></span></div>
+</header>
+<div class="shell page">
+<main id="content">
+<p class="disclaimer"><strong>笔记本镜像，不是全书。</strong> 这是开源笔记仓库的个人阅读页，只收录 Apache-2.0 许可的 Jupyter 笔记本、bonus 简介，以及这些文件里原有的图片。不包括 O’Reilly 书的正文、未随仓库发布的插图或 PDF。 <a href="https://www.amazon.com/Hands-Large-Language-Models-Understanding/dp/1098150961">购买本书</a> · <a href="https://www.oreilly.com/library/view/hands-on-large-language/9781098150952/">O’Reilly</a> · <a href="https://github.com/HandsOnLLM/Hands-On-Large-Language-Models">上游 GitHub</a></p><p class="resume"><a href="#content" id="resume" hidden>回到上次位置</a></p><article class="cell cell-md"><div class="markdown" lang="en"><h1>Chapter 8 - Semantic Search and Retrieval-Augmented Generation</h1>
+<p><i>Exploring a vital part of LLMs, search.</i></p>
+<p><a class="text-badge badge-buy" href="https://www.amazon.com/Hands-Large-Language-Models-Understanding/dp/1098150961" target="_blank" rel="noopener noreferrer">Buy the Book</a>
+<a class="text-badge badge-oreilly" href="https://www.oreilly.com/library/view/hands-on-large-language/9781098150952/" target="_blank" rel="noopener noreferrer">O&#x27;Reilly</a>
+<a class="text-badge badge-github" href="https://github.com/HandsOnLLM/Hands-On-Large-Language-Models" target="_blank" rel="noopener noreferrer">GitHub Repository</a>
+<a href="https://colab.research.google.com/github/HandsOnLLM/Hands-On-Large-Language-Models/blob/main/chapter08/Chapter%208%20-%20Semantic%20Search.ipynb" target="_blank" rel="noopener noreferrer"><img class="inline-badge" alt="Open In Colab" src="../assets/colab-badge.svg"></a></p>
+<hr>
+<p>This notebook is for Chapter 8 of the <a href="https://www.amazon.com/Hands-Large-Language-Models-Understanding/dp/1098150961" target="_blank" rel="noopener noreferrer">Hands-On Large Language Models</a> book by <a href="https://www.linkedin.com/in/jalammar" target="_blank" rel="noopener noreferrer">Jay Alammar</a> and <a href="https://www.linkedin.com/in/mgrootendorst/" target="_blank" rel="noopener noreferrer">Maarten Grootendorst</a>.</p>
+<hr>
+<p><a href="https://www.amazon.com/Hands-Large-Language-Models-Understanding/dp/1098150961" target="_blank" rel="noopener noreferrer">
+<img class="figure" src="../images/book_cover.png" width="350" alt="Hands-On Large Language Models book cover"></a></p></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h3>[OPTIONAL] - Installing Packages on <img class="inline-badge" src="../assets/colab-icon.png" width=100 alt="Google Colab"></h3>
+<p>If you are viewing this notebook on Google Colab (or any other cloud vendor), you need to <strong>uncomment and run</strong> the following codeblock to install the dependencies for this chapter:</p>
+<hr>
+<p>💡 <strong>NOTE</strong>: We will want to use a GPU to run the examples in this notebook. In Google Colab, go to
+<strong>Runtime &gt; Change runtime type &gt; Hardware accelerator &gt; GPU &gt; GPU type &gt; T4</strong>.</p>
+<hr></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># %%capture</span>
+<span class="c1"># !pip install langchain==0.2.5 faiss-cpu==1.8.0 cohere==5.5.8 langchain-community==0.2.5 rank_bm25==0.2.2 sentence-transformers==3.0.1</span>
+<span class="c1"># !pip install llama-cpp-python==0.2.78  --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124</span>
+
+<span class="c1">## IMPORTANT: Make sure to restart the session after installing the packages above.</span>
+</pre></div>
+</article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h1>Dense Retrieval Example</h1></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h2>1. Getting the text archive and chunking it</h2></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">cohere</span>
+
+<span class="c1"># Paste your API key here. Remember to not share publicly</span>
+<span class="n">api_key</span> <span class="o">=</span> <span class="s1">''</span>
+
+<span class="c1"># Create and retrieve a Cohere API key from os.cohere.ai</span>
+<span class="n">co</span> <span class="o">=</span> <span class="n">cohere</span><span class="o">.</span><span class="n">Client</span><span class="p">(</span><span class="n">api_key</span><span class="p">)</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="n">text</span> <span class="o">=</span> <span class="s2">"""</span>
+<span class="s2">Interstellar is a 2014 epic science fiction film co-written, directed, and produced by Christopher Nolan.</span>
+<span class="s2">It stars Matthew McConaughey, Anne Hathaway, Jessica Chastain, Bill Irwin, Ellen Burstyn, Matt Damon, and Michael Caine.</span>
+<span class="s2">Set in a dystopian future where humanity is struggling to survive, the film follows a group of astronauts who travel through a wormhole near Saturn in search of a new home for mankind.</span>
+
+<span class="s2">Brothers Christopher and Jonathan Nolan wrote the screenplay, which had its origins in a script Jonathan developed in 2007.</span>
+<span class="s2">Caltech theoretical physicist and 2017 Nobel laureate in Physics[4] Kip Thorne was an executive producer, acted as a scientific consultant, and wrote a tie-in book, The Science of Interstellar.</span>
+<span class="s2">Cinematographer Hoyte van Hoytema shot it on 35 mm movie film in the Panavision anamorphic format and IMAX 70 mm.</span>
+<span class="s2">Principal photography began in late 2013 and took place in Alberta, Iceland, and Los Angeles.</span>
+<span class="s2">Interstellar uses extensive practical and miniature effects and the company Double Negative created additional digital effects.</span>
+
+<span class="s2">Interstellar premiered on October 26, 2014, in Los Angeles.</span>
+<span class="s2">In the United States, it was first released on film stock, expanding to venues using digital projectors.</span>
+<span class="s2">The film had a worldwide gross over $677 million (and $773 million with subsequent re-releases), making it the tenth-highest grossing film of 2014.</span>
+<span class="s2">It received acclaim for its performances, direction, screenplay, musical score, visual effects, ambition, themes, and emotional weight.</span>
+<span class="s2">It has also received praise from many astronomers for its scientific accuracy and portrayal of theoretical astrophysics. Since its premiere, Interstellar gained a cult following,[5] and now is regarded by many sci-fi experts as one of the best science-fiction films of all time.</span>
+<span class="s2">Interstellar was nominated for five awards at the 87th Academy Awards, winning Best Visual Effects, and received numerous other accolades"""</span>
+
+<span class="c1"># Split into a list of sentences</span>
+<span class="n">texts</span> <span class="o">=</span> <span class="n">text</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s1">'.'</span><span class="p">)</span>
+
+<span class="c1"># Clean up to remove empty spaces and new lines</span>
+<span class="n">texts</span> <span class="o">=</span> <span class="p">[</span><span class="n">t</span><span class="o">.</span><span class="n">strip</span><span class="p">(</span><span class="s1">' </span><span class="se">\n</span><span class="s1">'</span><span class="p">)</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">texts</span><span class="p">]</span>
+</pre></div>
+</article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h2>2. Embedding the Text Chunks</h2></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+
+<span class="c1"># Get the embeddings</span>
+<span class="n">response</span> <span class="o">=</span> <span class="n">co</span><span class="o">.</span><span class="n">embed</span><span class="p">(</span>
+  <span class="n">texts</span><span class="o">=</span><span class="n">texts</span><span class="p">,</span>
+  <span class="n">input_type</span><span class="o">=</span><span class="s2">"search_document"</span><span class="p">,</span>
+<span class="p">)</span><span class="o">.</span><span class="n">embeddings</span>
+
+<span class="n">embeds</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">response</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">embeds</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">(15, 4096)
+</pre></div></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h2>3. Building The Search Index</h2></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">faiss</span>
+
+<span class="n">dim</span> <span class="o">=</span> <span class="n">embeds</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+<span class="n">index</span> <span class="o">=</span> <span class="n">faiss</span><span class="o">.</span><span class="n">IndexFlatL2</span><span class="p">(</span><span class="n">dim</span><span class="p">)</span>
+<span class="n">index</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">(</span><span class="n">embeds</span><span class="p">))</span>
+</pre></div>
+</article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h2>4. Search the index</h2></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">search</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="n">number_of_results</span><span class="o">=</span><span class="mi">3</span><span class="p">):</span>
+
+  <span class="c1"># 1. Get the query's embedding</span>
+  <span class="n">query_embed</span> <span class="o">=</span> <span class="n">co</span><span class="o">.</span><span class="n">embed</span><span class="p">(</span><span class="n">texts</span><span class="o">=</span><span class="p">[</span><span class="n">query</span><span class="p">],</span>
+                <span class="n">input_type</span><span class="o">=</span><span class="s2">"search_query"</span><span class="p">,)</span><span class="o">.</span><span class="n">embeddings</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+
+  <span class="c1"># 2. Retrieve the nearest neighbors</span>
+  <span class="n">distances</span> <span class="p">,</span> <span class="n">similar_item_ids</span> <span class="o">=</span> <span class="n">index</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">([</span><span class="n">query_embed</span><span class="p">]),</span> <span class="n">number_of_results</span><span class="p">)</span>
+
+  <span class="c1"># 3. Format the results</span>
+  <span class="n">texts_np</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">texts</span><span class="p">)</span> <span class="c1"># Convert texts list to numpy for easier indexing</span>
+  <span class="n">results</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="p">{</span><span class="s1">'texts'</span><span class="p">:</span> <span class="n">texts_np</span><span class="p">[</span><span class="n">similar_item_ids</span><span class="p">[</span><span class="mi">0</span><span class="p">]],</span>
+                              <span class="s1">'distance'</span><span class="p">:</span> <span class="n">distances</span><span class="p">[</span><span class="mi">0</span><span class="p">]})</span>
+
+  <span class="c1"># 4. Print and return the results</span>
+  <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Query:'</span><span class="si">{</span><span class="n">query</span><span class="si">}</span><span class="s2">'</span><span class="se">\n</span><span class="s2">Nearest neighbors:"</span><span class="p">)</span>
+  <span class="k">return</span> <span class="n">results</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="n">query</span> <span class="o">=</span> <span class="s2">"how precise was the science"</span>
+<span class="n">results</span> <span class="o">=</span> <span class="n">search</span><span class="p">(</span><span class="n">query</span><span class="p">)</span>
+<span class="n">results</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">Query:&#x27;how precise was the science&#x27;
+Nearest neighbors:
+</pre></div><div class="output"><div id="df-61ac7a5e-82b0-4fd0-9859-07cced4c6061" class="colab-df-container">
+    <div>
+
+<div class="table-scroll"><table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>texts</th>
+      <th>distance</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>0</th>
+      <td>It has also received praise from many astronom...</td>
+      <td>10757.379883</td>
+    </tr>
+    <tr>
+      <th>1</th>
+      <td>Caltech theoretical physicist and 2017 Nobel l...</td>
+      <td>11566.131836</td>
+    </tr>
+    <tr>
+      <th>2</th>
+      <td>Interstellar uses extensive practical and mini...</td>
+      <td>11922.833008</td>
+    </tr>
+  </tbody>
+</table></div>
+</div>
+    <div class="colab-df-buttons">
+
+  <div class="colab-df-container">
+    
+
+  
+
+    
+  </div>
+
+
+<div id="df-896847d1-56d9-4cdf-8a9a-d48ad7415e45">
+  
+
+
+
+  
+</div>
+
+  <div id="id_e6686149-58a9-44c4-aedb-e026d9d54910">
+    
+    
+    
+  </div>
+
+    </div>
+  </div></div></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">rank_bm25</span><span class="w"> </span><span class="kn">import</span> <span class="n">BM25Okapi</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.feature_extraction</span><span class="w"> </span><span class="kn">import</span> <span class="n">_stop_words</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">string</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">bm25_tokenizer</span><span class="p">(</span><span class="n">text</span><span class="p">):</span>
+    <span class="n">tokenized_doc</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">token</span> <span class="ow">in</span> <span class="n">text</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span><span class="o">.</span><span class="n">split</span><span class="p">():</span>
+        <span class="n">token</span> <span class="o">=</span> <span class="n">token</span><span class="o">.</span><span class="n">strip</span><span class="p">(</span><span class="n">string</span><span class="o">.</span><span class="n">punctuation</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">token</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="ow">and</span> <span class="n">token</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">_stop_words</span><span class="o">.</span><span class="n">ENGLISH_STOP_WORDS</span><span class="p">:</span>
+            <span class="n">tokenized_doc</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">token</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">tokenized_doc</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">tqdm</span><span class="w"> </span><span class="kn">import</span> <span class="n">tqdm</span>
+
+<span class="n">tokenized_corpus</span> <span class="o">=</span> <span class="p">[]</span>
+<span class="k">for</span> <span class="n">passage</span> <span class="ow">in</span> <span class="n">tqdm</span><span class="p">(</span><span class="n">texts</span><span class="p">):</span>
+    <span class="n">tokenized_corpus</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">bm25_tokenizer</span><span class="p">(</span><span class="n">passage</span><span class="p">))</span>
+
+<span class="n">bm25</span> <span class="o">=</span> <span class="n">BM25Okapi</span><span class="p">(</span><span class="n">tokenized_corpus</span><span class="p">)</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stderr">100%|██████████| 15/15 [00:00&lt;00:00, 38908.20it/s]
+</pre></div></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">keyword_search</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="n">top_k</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">num_candidates</span><span class="o">=</span><span class="mi">15</span><span class="p">):</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">"Input question:"</span><span class="p">,</span> <span class="n">query</span><span class="p">)</span>
+
+    <span class="c1">##### BM25 search (lexical search) #####</span>
+    <span class="n">bm25_scores</span> <span class="o">=</span> <span class="n">bm25</span><span class="o">.</span><span class="n">get_scores</span><span class="p">(</span><span class="n">bm25_tokenizer</span><span class="p">(</span><span class="n">query</span><span class="p">))</span>
+    <span class="n">top_n</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argpartition</span><span class="p">(</span><span class="n">bm25_scores</span><span class="p">,</span> <span class="o">-</span><span class="n">num_candidates</span><span class="p">)[</span><span class="o">-</span><span class="n">num_candidates</span><span class="p">:]</span>
+    <span class="n">bm25_hits</span> <span class="o">=</span> <span class="p">[{</span><span class="s1">'corpus_id'</span><span class="p">:</span> <span class="n">idx</span><span class="p">,</span> <span class="s1">'score'</span><span class="p">:</span> <span class="n">bm25_scores</span><span class="p">[</span><span class="n">idx</span><span class="p">]}</span> <span class="k">for</span> <span class="n">idx</span> <span class="ow">in</span> <span class="n">top_n</span><span class="p">]</span>
+    <span class="n">bm25_hits</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">bm25_hits</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">x</span><span class="p">[</span><span class="s1">'score'</span><span class="p">],</span> <span class="n">reverse</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Top-3 lexical search (BM25) hits"</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">hit</span> <span class="ow">in</span> <span class="n">bm25_hits</span><span class="p">[</span><span class="mi">0</span><span class="p">:</span><span class="n">top_k</span><span class="p">]:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">"</span><span class="se">\t</span><span class="si">{:.3f}</span><span class="se">\t</span><span class="si">{}</span><span class="s2">"</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">hit</span><span class="p">[</span><span class="s1">'score'</span><span class="p">],</span> <span class="n">texts</span><span class="p">[</span><span class="n">hit</span><span class="p">[</span><span class="s1">'corpus_id'</span><span class="p">]]</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s2">"</span><span class="se">\n</span><span class="s2">"</span><span class="p">,</span> <span class="s2">" "</span><span class="p">)))</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="n">keyword_search</span><span class="p">(</span><span class="n">query</span> <span class="o">=</span> <span class="s2">"how precise was the science"</span><span class="p">)</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">Input question: how precise was the science
+Top-3 lexical search (BM25) hits
+	1.789	Interstellar is a 2014 epic science fiction film co-written, directed, and produced by Christopher Nolan
+	1.373	Caltech theoretical physicist and 2017 Nobel laureate in Physics[4] Kip Thorne was an executive producer, acted as a scientific consultant, and wrote a tie-in book, The Science of Interstellar
+	0.000	It stars Matthew McConaughey, Anne Hathaway, Jessica Chastain, Bill Irwin, Ellen Burstyn, Matt Damon, and Michael Caine
+</pre></div></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h2>Caveats of Dense Retrieval</h2></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="n">query</span> <span class="o">=</span> <span class="s2">"What is the mass of the moon?"</span>
+<span class="n">results</span> <span class="o">=</span> <span class="n">search</span><span class="p">(</span><span class="n">query</span><span class="p">)</span>
+<span class="n">results</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">Query:&#x27;What is the mass of the moon?&#x27;
+Nearest neighbors:
+</pre></div><div class="output"><div id="df-6669e738-8ee5-4143-abc8-f1cff04e0803" class="colab-df-container">
+    <div>
+
+<div class="table-scroll"><table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>texts</th>
+      <th>distance</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>0</th>
+      <td>Cinematographer Hoyte van Hoytema shot it on 3...</td>
+      <td>12854.458984</td>
+    </tr>
+    <tr>
+      <th>1</th>
+      <td>The film had a worldwide gross over $677 milli...</td>
+      <td>13301.030273</td>
+    </tr>
+    <tr>
+      <th>2</th>
+      <td>It has also received praise from many astronom...</td>
+      <td>13332.011719</td>
+    </tr>
+  </tbody>
+</table></div>
+</div>
+    <div class="colab-df-buttons">
+
+  <div class="colab-df-container">
+    
+
+  
+
+    
+  </div>
+
+
+<div id="df-68b953f1-57a3-4f4a-9cc3-4cc06914eb72">
+  
+
+
+
+  
+</div>
+
+  <div id="id_6fce7d53-53cc-42ea-9bf5-3844e31f3081">
+    
+    
+    
+  </div>
+
+    </div>
+  </div></div></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h1>Reranking Example</h1></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="n">query</span> <span class="o">=</span> <span class="s2">"how precise was the science"</span>
+<span class="n">results</span> <span class="o">=</span> <span class="n">co</span><span class="o">.</span><span class="n">rerank</span><span class="p">(</span><span class="n">query</span><span class="o">=</span><span class="n">query</span><span class="p">,</span> <span class="n">documents</span><span class="o">=</span><span class="n">texts</span><span class="p">,</span> <span class="n">top_n</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">return_documents</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">results</span><span class="o">.</span><span class="n">results</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">[RerankResponseResultsItem(document=RerankResponseResultsItemDocument(text=&#x27;It has also received praise from many astronomers for its scientific accuracy and portrayal of theoretical astrophysics&#x27;), index=12, relevance_score=0.1698185),
+ RerankResponseResultsItem(document=RerankResponseResultsItemDocument(text=&#x27;The film had a worldwide gross over $677 million (and $773 million with subsequent re-releases), making it the tenth-highest grossing film of 2014&#x27;), index=10, relevance_score=0.07004896),
+ RerankResponseResultsItem(document=RerankResponseResultsItemDocument(text=&#x27;Caltech theoretical physicist and 2017 Nobel laureate in Physics[4] Kip Thorne was an executive producer, acted as a scientific consultant, and wrote a tie-in book, The Science of Interstellar&#x27;), index=4, relevance_score=0.0043994132)]</pre></div></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="k">for</span> <span class="n">idx</span><span class="p">,</span> <span class="n">result</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">results</span><span class="o">.</span><span class="n">results</span><span class="p">):</span>
+    <span class="nb">print</span><span class="p">(</span><span class="n">idx</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">relevance_score</span> <span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">document</span><span class="o">.</span><span class="n">text</span><span class="p">)</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">0 0.1698185 It has also received praise from many astronomers for its scientific accuracy and portrayal of theoretical astrophysics
+1 0.07004896 The film had a worldwide gross over $677 million (and $773 million with subsequent re-releases), making it the tenth-highest grossing film of 2014
+2 0.0043994132 Caltech theoretical physicist and 2017 Nobel laureate in Physics[4] Kip Thorne was an executive producer, acted as a scientific consultant, and wrote a tie-in book, The Science of Interstellar
+</pre></div></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">keyword_and_reranking_search</span><span class="p">(</span><span class="n">query</span><span class="p">,</span> <span class="n">top_k</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">num_candidates</span><span class="o">=</span><span class="mi">10</span><span class="p">):</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">"Input question:"</span><span class="p">,</span> <span class="n">query</span><span class="p">)</span>
+
+    <span class="c1">##### BM25 search (lexical search) #####</span>
+    <span class="n">bm25_scores</span> <span class="o">=</span> <span class="n">bm25</span><span class="o">.</span><span class="n">get_scores</span><span class="p">(</span><span class="n">bm25_tokenizer</span><span class="p">(</span><span class="n">query</span><span class="p">))</span>
+    <span class="n">top_n</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argpartition</span><span class="p">(</span><span class="n">bm25_scores</span><span class="p">,</span> <span class="o">-</span><span class="n">num_candidates</span><span class="p">)[</span><span class="o">-</span><span class="n">num_candidates</span><span class="p">:]</span>
+    <span class="n">bm25_hits</span> <span class="o">=</span> <span class="p">[{</span><span class="s1">'corpus_id'</span><span class="p">:</span> <span class="n">idx</span><span class="p">,</span> <span class="s1">'score'</span><span class="p">:</span> <span class="n">bm25_scores</span><span class="p">[</span><span class="n">idx</span><span class="p">]}</span> <span class="k">for</span> <span class="n">idx</span> <span class="ow">in</span> <span class="n">top_n</span><span class="p">]</span>
+    <span class="n">bm25_hits</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">bm25_hits</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">x</span><span class="p">[</span><span class="s1">'score'</span><span class="p">],</span> <span class="n">reverse</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Top-3 lexical search (BM25) hits"</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">hit</span> <span class="ow">in</span> <span class="n">bm25_hits</span><span class="p">[</span><span class="mi">0</span><span class="p">:</span><span class="n">top_k</span><span class="p">]:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">"</span><span class="se">\t</span><span class="si">{:.3f}</span><span class="se">\t</span><span class="si">{}</span><span class="s2">"</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">hit</span><span class="p">[</span><span class="s1">'score'</span><span class="p">],</span> <span class="n">texts</span><span class="p">[</span><span class="n">hit</span><span class="p">[</span><span class="s1">'corpus_id'</span><span class="p">]]</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s2">"</span><span class="se">\n</span><span class="s2">"</span><span class="p">,</span> <span class="s2">" "</span><span class="p">)))</span>
+
+    <span class="c1">#Add re-ranking</span>
+    <span class="n">docs</span> <span class="o">=</span> <span class="p">[</span><span class="n">texts</span><span class="p">[</span><span class="n">hit</span><span class="p">[</span><span class="s1">'corpus_id'</span><span class="p">]]</span> <span class="k">for</span> <span class="n">hit</span> <span class="ow">in</span> <span class="n">bm25_hits</span><span class="p">]</span>
+
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="se">\n</span><span class="s2">Top-3 hits by rank-API (</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">bm25_hits</span><span class="p">)</span><span class="si">}</span><span class="s2"> BM25 hits re-ranked)"</span><span class="p">)</span>
+    <span class="n">results</span> <span class="o">=</span> <span class="n">co</span><span class="o">.</span><span class="n">rerank</span><span class="p">(</span><span class="n">query</span><span class="o">=</span><span class="n">query</span><span class="p">,</span> <span class="n">documents</span><span class="o">=</span><span class="n">docs</span><span class="p">,</span> <span class="n">top_n</span><span class="o">=</span><span class="n">top_k</span><span class="p">,</span> <span class="n">return_documents</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">hit</span> <span class="ow">in</span> <span class="n">results</span><span class="o">.</span><span class="n">results</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">"</span><span class="se">\t</span><span class="si">{:.3f}</span><span class="se">\t</span><span class="si">{}</span><span class="s2">"</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">hit</span><span class="o">.</span><span class="n">relevance_score</span><span class="p">,</span> <span class="n">hit</span><span class="o">.</span><span class="n">document</span><span class="o">.</span><span class="n">text</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s2">"</span><span class="se">\n</span><span class="s2">"</span><span class="p">,</span> <span class="s2">" "</span><span class="p">)))</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="n">keyword_and_reranking_search</span><span class="p">(</span><span class="n">query</span> <span class="o">=</span> <span class="s2">"how precise was the science"</span><span class="p">)</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">Input question: how precise was the science
+Top-3 lexical search (BM25) hits
+	1.789	Interstellar is a 2014 epic science fiction film co-written, directed, and produced by Christopher Nolan
+	1.373	Caltech theoretical physicist and 2017 Nobel laureate in Physics[4] Kip Thorne was an executive producer, acted as a scientific consultant, and wrote a tie-in book, The Science of Interstellar
+	0.000	Interstellar uses extensive practical and miniature effects and the company Double Negative created additional digital effects
+
+Top-3 hits by rank-API (10 BM25 hits re-ranked)
+	0.004	Caltech theoretical physicist and 2017 Nobel laureate in Physics[4] Kip Thorne was an executive producer, acted as a scientific consultant, and wrote a tie-in book, The Science of Interstellar
+	0.004	Set in a dystopian future where humanity is struggling to survive, the film follows a group of astronauts who travel through a wormhole near Saturn in search of a new home for mankind
+	0.003	Brothers Christopher and Jonathan Nolan wrote the screenplay, which had its origins in a script Jonathan developed in 2007
+</pre></div></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h1>Retrieval-Augmented Generation</h1></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h2>Example: Grounded Generation with an LLM API</h2></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="n">query</span> <span class="o">=</span> <span class="s2">"income generated"</span>
+
+<span class="c1"># 1- Retrieval</span>
+<span class="c1"># We'll use embedding search. But ideally we'd do hybrid</span>
+<span class="n">results</span> <span class="o">=</span> <span class="n">search</span><span class="p">(</span><span class="n">query</span><span class="p">)</span>
+
+<span class="c1"># 2- Grounded Generation</span>
+<span class="n">docs_dict</span> <span class="o">=</span> <span class="p">[{</span><span class="s1">'text'</span><span class="p">:</span> <span class="n">text</span><span class="p">}</span> <span class="k">for</span> <span class="n">text</span> <span class="ow">in</span> <span class="n">results</span><span class="p">[</span><span class="s1">'texts'</span><span class="p">]]</span>
+<span class="n">response</span> <span class="o">=</span> <span class="n">co</span><span class="o">.</span><span class="n">chat</span><span class="p">(</span>
+    <span class="n">message</span> <span class="o">=</span> <span class="n">query</span><span class="p">,</span>
+    <span class="n">documents</span><span class="o">=</span><span class="n">docs_dict</span>
+<span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="o">.</span><span class="n">text</span><span class="p">)</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">Query:&#x27;income generated&#x27;
+Nearest neighbors:
+The film generated a worldwide gross of over $677 million, or $773 million with subsequent re-releases.
+</pre></div></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="n">response</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">NonStreamedChatResponse(text=&#x27;The film generated a worldwide gross of over $677 million, or $773 million with subsequent re-releases.&#x27;, generation_id=&#x27;bebc32bd-d620-42cf-bd13-f8d1f96d4aa6&#x27;, citations=[ChatCitation(start=21, end=57, text=&#x27;worldwide gross of over $677 million&#x27;, document_ids=[&#x27;doc_0&#x27;]), ChatCitation(start=62, end=103, text=&#x27;$773 million with subsequent re-releases.&#x27;, document_ids=[&#x27;doc_0&#x27;])], documents=[{&#x27;id&#x27;: &#x27;doc_0&#x27;, &#x27;text&#x27;: &#x27;The film had a worldwide gross over $677 million (and $773 million with subsequent re-releases), making it the tenth-highest grossing film of 2014&#x27;}], is_search_required=None, search_queries=None, search_results=None, finish_reason=&#x27;COMPLETE&#x27;, tool_calls=None, chat_history=[Message_User(message=&#x27;income generated&#x27;, tool_calls=None, role=&#x27;USER&#x27;), Message_Chatbot(message=&#x27;The film generated a worldwide gross of over $677 million, or $773 million with subsequent re-releases.&#x27;, tool_calls=None, role=&#x27;CHATBOT&#x27;)], prompt=None, meta=ApiMeta(api_version=ApiMetaApiVersion(version=&#x27;1&#x27;, is_deprecated=None, is_experimental=None), billed_units=ApiMetaBilledUnits(input_tokens=106, output_tokens=26, search_units=None, classifications=None), tokens=ApiMetaTokens(input_tokens=797, output_tokens=95), warnings=None), response_id=&#x27;319002db-505d-4d3c-903f-41eefbf0f856&#x27;)</pre></div></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="n">response</span><span class="o">.</span><span class="n">citations</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">[ChatCitation(start=21, end=57, text=&#x27;worldwide gross of over $677 million&#x27;, document_ids=[&#x27;doc_0&#x27;]),
+ ChatCitation(start=62, end=103, text=&#x27;$773 million with subsequent re-releases.&#x27;, document_ids=[&#x27;doc_0&#x27;])]</pre></div></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h2>Example: RAG with Local Models</h2></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h3>Loading the Generation Model</h3></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="err">!</span><span class="n">wget</span> <span class="n">https</span><span class="p">:</span><span class="o">//</span><span class="n">huggingface</span><span class="o">.</span><span class="n">co</span><span class="o">/</span><span class="n">microsoft</span><span class="o">/</span><span class="n">Phi</span><span class="o">-</span><span class="mi">3</span><span class="o">-</span><span class="n">mini</span><span class="o">-</span><span class="mi">4</span><span class="n">k</span><span class="o">-</span><span class="n">instruct</span><span class="o">-</span><span class="n">gguf</span><span class="o">/</span><span class="n">resolve</span><span class="o">/</span><span class="n">main</span><span class="o">/</span><span class="n">Phi</span><span class="o">-</span><span class="mi">3</span><span class="o">-</span><span class="n">mini</span><span class="o">-</span><span class="mi">4</span><span class="n">k</span><span class="o">-</span><span class="n">instruct</span><span class="o">-</span><span class="n">q4</span><span class="o">.</span><span class="n">gguf</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">--2024-06-21 09:49:22--  https://huggingface.co/lmstudio-community/Phi-3-mini-4k-instruct-GGUF/resolve/main/Phi-3-mini-4k-instruct-Q8_0.gguf
+Resolving huggingface.co (huggingface.co)... 18.164.174.118, 18.164.174.23, 18.164.174.17, ...
+Connecting to huggingface.co (huggingface.co)|18.164.174.118|:443... connected.
+HTTP request sent, awaiting response... 302 Found
+Location: https://cdn-lfs-us-1.huggingface.co/repos/8e/3f/8e3fafa0351929e621a3db9a53b131a9d7f4b222332208032555bb92f11ab100/8d2f3732e31c354e169cd81dcde9807a1c73b85b9a0f9b16c19013e7a4bb151c?response-content-disposition=inline%3B+filename*%3DUTF-8%27%27Phi-3-mini-4k-instruct-Q8_0.gguf%3B+filename%3D%22Phi-3-mini-4k-instruct-Q8_0.gguf%22%3B&amp;Expires=1719222562&amp;Policy=eyJTdGF0ZW1lbnQiOlt7IkNvbmRpdGlvbiI6eyJEYXRlTGVzc1RoYW4iOnsiQVdTOkVwb2NoVGltZSI6MTcxOTIyMjU2Mn19LCJSZXNvdXJjZSI6Imh0dHBzOi8vY2RuLWxmcy11cy0xLmh1Z2dpbmdmYWNlLmNvL3JlcG9zLzhlLzNmLzhlM2ZhZmEwMzUxOTI5ZTYyMWEzZGI5YTUzYjEzMWE5ZDdmNGIyMjIzMzIyMDgwMzI1NTViYjkyZjExYWIxMDAvOGQyZjM3MzJlMzFjMzU0ZTE2OWNkODFkY2RlOTgwN2ExYzczYjg1YjlhMGY5YjE2YzE5MDEzZTdhNGJiMTUxYz9yZXNwb25zZS1jb250ZW50LWRpc3Bvc2l0aW9uPSoifV19&amp;Signature=DFqGVAGZBHhpPlWt2pSH5nbTgskxr6FrSK19FhopbgIYnqujHL3LDgnleMTDHrtRvflyX-6QE88ZAYZc1wIZA7ZXgBVoFdYMNPbHixfv4hqGdKiddWcF4QYi5JCYChS3Z8oZPUkcbyX6KNTqMR1nls2KTZ3K0Xl3E7nGmlTXo85mRdRKQojZLkuLOa28pG2z9jrs1wJ1B2W3Ed%7E%7EK1E-BXhjKsK4zUR1Ch-3KfqAqe0q0XmnCcF1Ml2xosujvlA%7EZuVxflmRf8wRVZBZsbZNXaUFAb3oiyNTuyr9g1fvSxJPmAJocs9jIMUZwU88Sa4s%7EVdfytD0s6YruNH1GOAfoA__&amp;Key-Pair-Id=K2FPYV99P2N66Q [following]
+--2024-06-21 09:49:22--  https://cdn-lfs-us-1.huggingface.co/repos/8e/3f/8e3fafa0351929e621a3db9a53b131a9d7f4b222332208032555bb92f11ab100/8d2f3732e31c354e169cd81dcde9807a1c73b85b9a0f9b16c19013e7a4bb151c?response-content-disposition=inline%3B+filename*%3DUTF-8%27%27Phi-3-mini-4k-instruct-Q8_0.gguf%3B+filename%3D%22Phi-3-mini-4k-instruct-Q8_0.gguf%22%3B&amp;Expires=1719222562&amp;Policy=eyJTdGF0ZW1lbnQiOlt7IkNvbmRpdGlvbiI6eyJEYXRlTGVzc1RoYW4iOnsiQVdTOkVwb2NoVGltZSI6MTcxOTIyMjU2Mn19LCJSZXNvdXJjZSI6Imh0dHBzOi8vY2RuLWxmcy11cy0xLmh1Z2dpbmdmYWNlLmNvL3JlcG9zLzhlLzNmLzhlM2ZhZmEwMzUxOTI5ZTYyMWEzZGI5YTUzYjEzMWE5ZDdmNGIyMjIzMzIyMDgwMzI1NTViYjkyZjExYWIxMDAvOGQyZjM3MzJlMzFjMzU0ZTE2OWNkODFkY2RlOTgwN2ExYzczYjg1YjlhMGY5YjE2YzE5MDEzZTdhNGJiMTUxYz9yZXNwb25zZS1jb250ZW50LWRpc3Bvc2l0aW9uPSoifV19&amp;Signature=DFqGVAGZBHhpPlWt2pSH5nbTgskxr6FrSK19FhopbgIYnqujHL3LDgnleMTDHrtRvflyX-6QE88ZAYZc1wIZA7ZXgBVoFdYMNPbHixfv4hqGdKiddWcF4QYi5JCYChS3Z8oZPUkcbyX6KNTqMR1nls2KTZ3K0Xl3E7nGmlTXo85mRdRKQojZLkuLOa28pG2z9jrs1wJ1B2W3Ed%7E%7EK1E-BXhjKsK4zUR1Ch-3KfqAqe0q0XmnCcF1Ml2xosujvlA%7EZuVxflmRf8wRVZBZsbZNXaUFAb3oiyNTuyr9g1fvSxJPmAJocs9jIMUZwU88Sa4s%7EVdfytD0s6YruNH1GOAfoA__&amp;Key-Pair-Id=K2FPYV99P2N66Q
+Resolving cdn-lfs-us-1.huggingface.co (cdn-lfs-us-1.huggingface.co)... 18.65.25.71, 18.65.25.64, 18.65.25.113, ...
+Connecting to cdn-lfs-us-1.huggingface.co (cdn-lfs-us-1.huggingface.co)|18.65.25.71|:443... connected.
+HTTP request sent, awaiting response... 200 OK
+Length: 4061221024 (3.8G) [binary/octet-stream]
+Saving to: ‘Phi-3-mini-4k-instruct-Q8_0.gguf’
+
+Phi-3-mini-4k-instr 100%[===================&gt;]   3.78G  66.7MB/s    in 33s     
+
+2024-06-21 09:49:55 (119 MB/s) - ‘Phi-3-mini-4k-instruct-Q8_0.gguf’ saved [4061221024/4061221024]
+
+</pre></div></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">langchain</span><span class="w"> </span><span class="kn">import</span> <span class="n">LlamaCpp</span>
+
+<span class="c1"># Make sure the model path is correct for your system!</span>
+<span class="n">llm</span> <span class="o">=</span> <span class="n">LlamaCpp</span><span class="p">(</span>
+    <span class="n">model_path</span><span class="o">=</span><span class="s2">"Phi-3-mini-4k-instruct-q4.gguf"</span><span class="p">,</span>
+    <span class="n">n_gpu_layers</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">max_tokens</span><span class="o">=</span><span class="mi">500</span><span class="p">,</span>
+    <span class="n">n_ctx</span><span class="o">=</span><span class="mi">2048</span><span class="p">,</span>
+    <span class="n">seed</span><span class="o">=</span><span class="mi">42</span><span class="p">,</span>
+    <span class="n">verbose</span><span class="o">=</span><span class="kc">False</span>
+<span class="p">)</span>
+</pre></div>
+</article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h3>Loading the Embedding Model</h3></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">langchain.embeddings.huggingface</span><span class="w"> </span><span class="kn">import</span> <span class="n">HuggingFaceEmbeddings</span>
+
+<span class="c1"># Embedding Model for converting text to numerical representations</span>
+<span class="n">embedding_model</span> <span class="o">=</span> <span class="n">HuggingFaceEmbeddings</span><span class="p">(</span>
+    <span class="n">model_name</span><span class="o">=</span><span class="s1">'BAAI/bge-small-en-v1.5'</span>
+<span class="p">)</span>
+</pre></div>
+<div class="outputs"><details class="log"><summary>运行日志 · /usr/local/lib/python3.10/dist-packages/sentence_transformers/cross_encoder/CrossEncoder.p</summary><pre class="stream stderr">/usr/local/lib/python3.10/dist-packages/sentence_transformers/cross_encoder/CrossEncoder.py:11: TqdmExperimentalWarning: Using `tqdm.autonotebook.tqdm` in notebook mode. Use `tqdm.tqdm` instead to force console mode (e.g. in jupyter console)
+  from tqdm.autonotebook import tqdm, trange
+/usr/local/lib/python3.10/dist-packages/huggingface_hub/utils/_token.py:89: UserWarning: 
+The secret `HF_TOKEN` does not exist in your Colab secrets.
+To authenticate with the Hugging Face Hub, create a token in your settings tab (https://huggingface.co/settings/tokens), set it as secret in your Google Colab and restart your session.
+You will be able to reuse this secret in all of your notebooks.
+Please note that authentication is recommended but still optional to access public models or datasets.
+  warnings.warn(
+</pre></details><details class="log"><summary>模型加载记录（交互控件，静态页只保留文字）</summary><pre class="stream">modules.json:   0%|          | 0.00/385 [00:00&lt;?, ?B/s]
+README.md:   0%|          | 0.00/68.1k [00:00&lt;?, ?B/s]
+sentence_bert_config.json:   0%|          | 0.00/57.0 [00:00&lt;?, ?B/s]</pre></details><div class="scrollbox"><pre class="stream stderr">/usr/local/lib/python3.10/dist-packages/huggingface_hub/file_download.py:1132: FutureWarning: `resume_download` is deprecated and will be removed in version 1.0.0. Downloads always resume when possible. If you want to force a new download, use `force_download=True`.
+  warnings.warn(
+</pre></div><details class="log"><summary>模型加载记录（交互控件，静态页只保留文字）</summary><pre class="stream">config.json:   0%|          | 0.00/583 [00:00&lt;?, ?B/s]
+model.safetensors:   0%|          | 0.00/66.7M [00:00&lt;?, ?B/s]
+tokenizer_config.json:   0%|          | 0.00/394 [00:00&lt;?, ?B/s]
+vocab.txt:   0%|          | 0.00/232k [00:00&lt;?, ?B/s]
+tokenizer.json:   0%|          | 0.00/712k [00:00&lt;?, ?B/s]
+special_tokens_map.json:   0%|          | 0.00/125 [00:00&lt;?, ?B/s]
+1_Pooling/config.json:   0%|          | 0.00/190 [00:00&lt;?, ?B/s]</pre></details></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h3>Preparing the Vector Database</h3></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">langchain.vectorstores</span><span class="w"> </span><span class="kn">import</span> <span class="n">FAISS</span>
+
+<span class="c1"># Create a local vector database</span>
+<span class="n">db</span> <span class="o">=</span> <span class="n">FAISS</span><span class="o">.</span><span class="n">from_texts</span><span class="p">(</span><span class="n">texts</span><span class="p">,</span> <span class="n">embedding_model</span><span class="p">)</span>
+</pre></div>
+</article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h3>The RAG Prompt</h3></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">langchain</span><span class="w"> </span><span class="kn">import</span> <span class="n">PromptTemplate</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">langchain.chains</span><span class="w"> </span><span class="kn">import</span> <span class="n">RetrievalQA</span>
+
+
+<span class="c1"># Create a prompt template</span>
+<span class="n">template</span> <span class="o">=</span> <span class="s2">"""&lt;|user|&gt;</span>
+<span class="s2">Relevant information:</span>
+<span class="si">{context}</span>
+
+<span class="s2">Provide a concise answer the following question using the relevant information provided above:</span>
+<span class="si">{question}</span><span class="s2">&lt;|end|&gt;</span>
+<span class="s2">&lt;|assistant|&gt;"""</span>
+<span class="n">prompt</span> <span class="o">=</span> <span class="n">PromptTemplate</span><span class="p">(</span>
+    <span class="n">template</span><span class="o">=</span><span class="n">template</span><span class="p">,</span>
+    <span class="n">input_variables</span><span class="o">=</span><span class="p">[</span><span class="s2">"context"</span><span class="p">,</span> <span class="s2">"question"</span><span class="p">]</span>
+<span class="p">)</span>
+
+<span class="c1"># RAG Pipeline</span>
+<span class="n">rag</span> <span class="o">=</span> <span class="n">RetrievalQA</span><span class="o">.</span><span class="n">from_chain_type</span><span class="p">(</span>
+    <span class="n">llm</span><span class="o">=</span><span class="n">llm</span><span class="p">,</span>
+    <span class="n">chain_type</span><span class="o">=</span><span class="s1">'stuff'</span><span class="p">,</span>
+    <span class="n">retriever</span><span class="o">=</span><span class="n">db</span><span class="o">.</span><span class="n">as_retriever</span><span class="p">(),</span>
+    <span class="n">chain_type_kwargs</span><span class="o">=</span><span class="p">{</span>
+        <span class="s2">"prompt"</span><span class="p">:</span> <span class="n">prompt</span>
+    <span class="p">},</span>
+    <span class="n">verbose</span><span class="o">=</span><span class="kc">True</span>
+<span class="p">)</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="n">rag</span><span class="o">.</span><span class="n">invoke</span><span class="p">(</span><span class="s1">'Income generated'</span><span class="p">)</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">
+
+&gt; Entering new RetrievalQA chain...
+
+&gt; Finished chain.
+</pre></div><div class="scrollbox"><pre class="stream stdout">{&#x27;query&#x27;: &#x27;Income generated&#x27;,
+ &#x27;result&#x27;: &quot; Interstellar grossed over $677 million worldwide in 2014 and had additional earnings from subsequent re-releases, totaling approximately $773 million. The film&#x27;s release utilized both traditional film stock and digital projectors across various venues to maximize its income generation potential.&quot;}</pre></div></div></article><nav class="endnav" aria-label="章节底部导航"><a class="endlink" href="07.html" rel="prev"><span class="endk">上一章</span><span class="endt">Advanced Text Generation Techniques and Tools</span></a><a class="endlink next" href="09.html" rel="next"><span class="endk">下一章</span><span class="endt">Multimodal Large Language Models</span></a></nav><p class="sourcerow"><a href="https://github.com/HandsOnLLM/Hands-On-Large-Language-Models/blob/main/chapter08/Chapter%208%20-%20Semantic%20Search.ipynb">上游笔记本源文件</a></p>
+</main>
+
+<footer class="site-footer">
+  <p>笔记本 © 2024 Jay Alammar &amp; Maarten Grootendorst，Apache-2.0。本阅读界面由 mate-matt 制作，是上游仓库的衍生排版，不改笔记本正文。</p>
+  <p>上游提交 <a href="https://github.com/HandsOnLLM/Hands-On-Large-Language-Models/commit/ea3390819997999a51983677b80b3aac4dc50ada">ea33908</a>
+  · <a href="../LICENSE">Apache-2.0</a>
+  · <a href="../NOTICE">NOTICE</a>
+  · <a href="https://github.com/HandsOnLLM/Hands-On-Large-Language-Models">上游仓库</a>
+  · <a href="https://github.com/mate-matt/hands-on-llm-reader">本仓库</a>
+  · <a href="../bonus/index.html">延伸阅读</a></p>
+</footer>
+
+</div>
+<noscript><p class="noscript-note shell">阅读进度存在这台浏览器里，需要 JavaScript。正文、代码和图片不依赖脚本。Plotly 图需要脚本才能画出来。</p></noscript>
+<script src="../js/reader.js"></script>
+</body>
+</html>

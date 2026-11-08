@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="format-detection" content="telephone=no">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#fbf9f6">
+<meta name="description" content="个人笔记本阅读镜像，不是 Hands-On Large Language Models 全书。内容来自 Apache-2.0 开源仓库。">
+<title>第 4 章 · Text Classification</title>
+<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../css/pygments.css">
+<link rel="stylesheet" href="../css/reader.css">
+</head>
+<body data-chapter="04">
+<a class="skip" href="#content">跳到正文</a>
+<header class="topbar">
+  <div class="shell topbar-inner">
+    <a class="brand" href="../index.html">Hands-On LLM 笔记</a>
+    <nav class="chrome" aria-label="阅读导航"><a href="../index.html" >目录</a><a href="03.html" rel="prev">上一章</a><a href="05.html" rel="next">下一章</a><a href="https://colab.research.google.com/github/HandsOnLLM/Hands-On-Large-Language-Models/blob/main/chapter04/Chapter%204%20-%20Text%20Classification.ipynb" class="colab">在 Colab 打开</a><button type="button" data-done="04" aria-pressed="false">标为已读</button></nav>
+  </div>
+  <div class="scrollline" aria-hidden="true"><span id="scrollline"></span></div>
+</header>
+<div class="shell page">
+<main id="content">
+<p class="disclaimer"><strong>笔记本镜像，不是全书。</strong> 这是开源笔记仓库的个人阅读页，只收录 Apache-2.0 许可的 Jupyter 笔记本、bonus 简介，以及这些文件里原有的图片。不包括 O’Reilly 书的正文、未随仓库发布的插图或 PDF。 <a href="https://www.amazon.com/Hands-Large-Language-Models-Understanding/dp/1098150961">购买本书</a> · <a href="https://www.oreilly.com/library/view/hands-on-large-language/9781098150952/">O’Reilly</a> · <a href="https://github.com/HandsOnLLM/Hands-On-Large-Language-Models">上游 GitHub</a></p><p class="resume"><a href="#content" id="resume" hidden>回到上次位置</a></p><article class="cell cell-md"><div class="markdown" lang="en"><h1>Chapter 4 - Text Classification</h1>
+<p><i>Classifying text with both representative and generative models</i></p>
+<p><a class="text-badge badge-buy" href="https://www.amazon.com/Hands-Large-Language-Models-Understanding/dp/1098150961" target="_blank" rel="noopener noreferrer">Buy the Book</a>
+<a class="text-badge badge-oreilly" href="https://www.oreilly.com/library/view/hands-on-large-language/9781098150952/" target="_blank" rel="noopener noreferrer">O&#x27;Reilly</a>
+<a class="text-badge badge-github" href="https://github.com/HandsOnLLM/Hands-On-Large-Language-Models" target="_blank" rel="noopener noreferrer">GitHub Repository</a>
+<a href="https://colab.research.google.com/github/HandsOnLLM/Hands-On-Large-Language-Models/blob/main/chapter04/Chapter%204%20-%20Text%20Classification.ipynb" target="_blank" rel="noopener noreferrer"><img class="inline-badge" alt="Open In Colab" src="../assets/colab-badge.svg"></a></p>
+<hr>
+<p>This notebook is for Chapter 4 of the <a href="https://www.amazon.com/Hands-Large-Language-Models-Understanding/dp/1098150961" target="_blank" rel="noopener noreferrer">Hands-On Large Language Models</a> book by <a href="https://www.linkedin.com/in/jalammar" target="_blank" rel="noopener noreferrer">Jay Alammar</a> and <a href="https://www.linkedin.com/in/mgrootendorst/" target="_blank" rel="noopener noreferrer">Maarten Grootendorst</a>.</p>
+<hr>
+<p><a href="https://www.amazon.com/Hands-Large-Language-Models-Understanding/dp/1098150961" target="_blank" rel="noopener noreferrer">
+<img class="figure" src="../images/book_cover.png" width="350" alt="Hands-On Large Language Models book cover"></a></p></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h3>[OPTIONAL] - Installing Packages on <img class="inline-badge" src="../assets/colab-icon.png" width=100 alt="Google Colab"></h3>
+<p>If you are viewing this notebook on Google Colab (or any other cloud vendor), you need to <strong>uncomment and run</strong> the following codeblock to install the dependencies for this chapter:</p>
+<hr>
+<p>💡 <strong>NOTE</strong>: We will want to use a GPU to run the examples in this notebook. In Google Colab, go to
+<strong>Runtime &gt; Change runtime type &gt; Hardware accelerator &gt; GPU &gt; GPU type &gt; T4</strong>.</p>
+<hr></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># %%capture</span>
+<span class="c1"># !pip install "transformers==4.41.2" "sentence-transformers==3.0.1" openai</span>
+<span class="c1"># !pip install -U datasets</span>
+</pre></div>
+</article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h1><strong>Data</strong></h1></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">datasets</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_dataset</span>
+
+<span class="c1"># Load our data</span>
+<span class="n">data</span> <span class="o">=</span> <span class="n">load_dataset</span><span class="p">(</span><span class="s2">"rotten_tomatoes"</span><span class="p">)</span>
+<span class="n">data</span>
+</pre></div>
+<div class="outputs"><details class="log"><summary>运行日志 · /usr/local/lib/python3.10/dist-packages/huggingface_hub/utils/_token.py:88: UserWarning: </summary><pre class="stream stderr">/usr/local/lib/python3.10/dist-packages/huggingface_hub/utils/_token.py:88: UserWarning: 
+The secret `HF_TOKEN` does not exist in your Colab secrets.
+To authenticate with the Hugging Face Hub, create a token in your settings tab (https://huggingface.co/settings/tokens), set it as secret in your Google Colab and restart your session.
+You will be able to reuse this secret in all of your notebooks.
+Please note that authentication is recommended but still optional to access public models or datasets.
+  warnings.warn(
+</pre></details><div class="scrollbox"><pre class="stream stdout">DatasetDict({
+    train: Dataset({
+        features: [&#x27;text&#x27;, &#x27;label&#x27;],
+        num_rows: 8530
+    })
+    validation: Dataset({
+        features: [&#x27;text&#x27;, &#x27;label&#x27;],
+        num_rows: 1066
+    })
+    test: Dataset({
+        features: [&#x27;text&#x27;, &#x27;label&#x27;],
+        num_rows: 1066
+    })
+})</pre></div></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="n">data</span><span class="p">[</span><span class="s2">"train"</span><span class="p">][</span><span class="mi">0</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">{&#x27;text&#x27;: [&#x27;the rock is destined to be the 21st century\&#x27;s new &quot; conan &quot; and that he\&#x27;s going to make a splash even greater than arnold schwarzenegger , jean-claud van damme or steven segal .&#x27;,
+  &#x27;things really get weird , though not particularly scary : the movie is all portent and no content .&#x27;],
+ &#x27;label&#x27;: [1, 0]}</pre></div></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h1><strong>Text Classification with Representation Models</strong></h1></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h2><strong>Using a Task-specific Model</strong></h2></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">pipeline</span>
+
+<span class="c1"># Path to our HF model</span>
+<span class="n">model_path</span> <span class="o">=</span> <span class="s2">"cardiffnlp/twitter-roberta-base-sentiment-latest"</span>
+
+<span class="c1"># Load model into pipeline</span>
+<span class="n">pipe</span> <span class="o">=</span> <span class="n">pipeline</span><span class="p">(</span>
+    <span class="n">model</span><span class="o">=</span><span class="n">model_path</span><span class="p">,</span>
+    <span class="n">tokenizer</span><span class="o">=</span><span class="n">model_path</span><span class="p">,</span>
+    <span class="n">return_all_scores</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">device</span><span class="o">=</span><span class="s2">"cuda:0"</span>
+<span class="p">)</span>
+</pre></div>
+<div class="outputs"><details class="log"><summary>运行日志 · /usr/local/lib/python3.10/dist-packages/torch/_utils.py:831: UserWarning: TypedStorage is </summary><pre class="stream stderr">/usr/local/lib/python3.10/dist-packages/torch/_utils.py:831: UserWarning: TypedStorage is deprecated. It will be removed in the future and UntypedStorage will be the only storage class. This should only matter to you if you are using storages directly.  To access UntypedStorage directly, use tensor.untyped_storage() instead of tensor.storage()
+  return self.fget.__get__(instance, owner)()
+Some weights of the model checkpoint at cardiffnlp/twitter-roberta-base-sentiment-latest were not used when initializing RobertaForSequenceClassification: [&#x27;roberta.pooler.dense.bias&#x27;, &#x27;roberta.pooler.dense.weight&#x27;]
+- This IS expected if you are initializing RobertaForSequenceClassification from the checkpoint of a model trained on another task or with another architecture (e.g. initializing a BertForSequenceClassification model from a BertForPreTraining model).
+- This IS NOT expected if you are initializing RobertaForSequenceClassification from the checkpoint of a model that you expect to be exactly identical (initializing a BertForSequenceClassification model from a BertForSequenceClassification model).
+/usr/local/lib/python3.10/dist-packages/transformers/pipelines/text_classification.py:104: UserWarning: `return_all_scores` is now deprecated,  if want a similar functionality use `top_k=None` instead of `return_all_scores=True` or `top_k=1` instead of `return_all_scores=False`.
+  warnings.warn(
+</pre></details></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tqdm</span><span class="w"> </span><span class="kn">import</span> <span class="n">tqdm</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">transformers.pipelines.pt_utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">KeyDataset</span>
+
+<span class="c1"># Run inference</span>
+<span class="n">y_pred</span> <span class="o">=</span> <span class="p">[]</span>
+<span class="k">for</span> <span class="n">output</span> <span class="ow">in</span> <span class="n">tqdm</span><span class="p">(</span><span class="n">pipe</span><span class="p">(</span><span class="n">KeyDataset</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="s2">"test"</span><span class="p">],</span> <span class="s2">"text"</span><span class="p">)),</span> <span class="n">total</span><span class="o">=</span><span class="nb">len</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="s2">"test"</span><span class="p">])):</span>
+    <span class="n">negative_score</span> <span class="o">=</span> <span class="n">output</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s2">"score"</span><span class="p">]</span>
+    <span class="n">positive_score</span> <span class="o">=</span> <span class="n">output</span><span class="p">[</span><span class="mi">2</span><span class="p">][</span><span class="s2">"score"</span><span class="p">]</span>
+    <span class="n">assignment</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argmax</span><span class="p">([</span><span class="n">negative_score</span><span class="p">,</span> <span class="n">positive_score</span><span class="p">])</span>
+    <span class="n">y_pred</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">assignment</span><span class="p">)</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stderr">100%|██████████| 1066/1066 [00:37&lt;00:00, 28.25it/s]
+</pre></div></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.metrics</span><span class="w"> </span><span class="kn">import</span> <span class="n">classification_report</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">evaluate_performance</span><span class="p">(</span><span class="n">y_true</span><span class="p">,</span> <span class="n">y_pred</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""Create and print the classification report"""</span>
+    <span class="n">performance</span> <span class="o">=</span> <span class="n">classification_report</span><span class="p">(</span>
+        <span class="n">y_true</span><span class="p">,</span> <span class="n">y_pred</span><span class="p">,</span>
+        <span class="n">target_names</span><span class="o">=</span><span class="p">[</span><span class="s2">"Negative Review"</span><span class="p">,</span> <span class="s2">"Positive Review"</span><span class="p">]</span>
+    <span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="n">performance</span><span class="p">)</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="n">evaluate_performance</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="s2">"test"</span><span class="p">][</span><span class="s2">"label"</span><span class="p">],</span> <span class="n">y_pred</span><span class="p">)</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">                 precision    recall  f1-score   support
+
+Negative Review       0.76      0.88      0.81       533
+Positive Review       0.86      0.72      0.78       533
+
+       accuracy                           0.80      1066
+      macro avg       0.81      0.80      0.80      1066
+   weighted avg       0.81      0.80      0.80      1066
+
+</pre></div></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h2><strong>Classification Tasks that Leverage Embeddings</strong></h2></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h3>Supervised Classification</h3></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">sentence_transformers</span><span class="w"> </span><span class="kn">import</span> <span class="n">SentenceTransformer</span>
+
+<span class="c1"># Load model</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">SentenceTransformer</span><span class="p">(</span><span class="s1">'sentence-transformers/all-mpnet-base-v2'</span><span class="p">)</span>
+
+<span class="c1"># Convert text to embeddings</span>
+<span class="n">train_embeddings</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="s2">"train"</span><span class="p">][</span><span class="s2">"text"</span><span class="p">],</span> <span class="n">show_progress_bar</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">test_embeddings</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="s2">"test"</span><span class="p">][</span><span class="s2">"text"</span><span class="p">],</span> <span class="n">show_progress_bar</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</pre></div>
+<div class="outputs"><details class="log"><summary>模型加载记录（交互控件，静态页只保留文字）</summary><pre class="stream">Batches:   0%|          | 0/267 [00:00&lt;?, ?it/s]
+Batches:   0%|          | 0/34 [00:00&lt;?, ?it/s]</pre></details></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="n">train_embeddings</span><span class="o">.</span><span class="n">shape</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">(8530, 768)</pre></div></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.linear_model</span><span class="w"> </span><span class="kn">import</span> <span class="n">LogisticRegression</span>
+
+<span class="c1"># Train a Logistic Regression on our train embeddings</span>
+<span class="n">clf</span> <span class="o">=</span> <span class="n">LogisticRegression</span><span class="p">(</span><span class="n">random_state</span><span class="o">=</span><span class="mi">42</span><span class="p">)</span>
+<span class="n">clf</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">train_embeddings</span><span class="p">,</span> <span class="n">data</span><span class="p">[</span><span class="s2">"train"</span><span class="p">][</span><span class="s2">"label"</span><span class="p">])</span>
+</pre></div>
+<div class="outputs"><div class="output"><div id="sk-container-id-1" class="sk-top-container"><div class="sk-text-repr-fallback"><pre>LogisticRegression(random_state=42)</pre><b>In a Jupyter environment, please rerun this cell to show the HTML representation or trust the notebook. <br />On GitHub, the HTML representation is unable to render, please try loading this page with nbviewer.org.</b></div><div class="sk-container" hidden><div class="sk-item"><div class="sk-estimator sk-toggleable"><input class="sk-toggleable__control sk-hidden--visually" id="sk-estimator-id-1" type="checkbox" checked><label for="sk-estimator-id-1" class="sk-toggleable__label sk-toggleable__label-arrow">LogisticRegression</label><div class="sk-toggleable__content"><pre>LogisticRegression(random_state=42)</pre></div></div></div></div></div></div></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Predict previously unseen instances</span>
+<span class="n">y_pred</span> <span class="o">=</span> <span class="n">clf</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">test_embeddings</span><span class="p">)</span>
+<span class="n">evaluate_performance</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="s2">"test"</span><span class="p">][</span><span class="s2">"label"</span><span class="p">],</span> <span class="n">y_pred</span><span class="p">)</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">                 precision    recall  f1-score   support
+
+Negative Review       0.85      0.86      0.85       533
+Positive Review       0.86      0.85      0.85       533
+
+       accuracy                           0.85      1066
+      macro avg       0.85      0.85      0.85      1066
+   weighted avg       0.85      0.85      0.85      1066
+
+</pre></div></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><p><strong>Tip!</strong>  </p>
+<p>What would happen if we would not use a classifier at all? Instead, we can average the embeddings per class and apply cosine similarity to predict which classes match the documents best:</p></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.metrics</span><span class="w"> </span><span class="kn">import</span> <span class="n">classification_report</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.metrics.pairwise</span><span class="w"> </span><span class="kn">import</span> <span class="n">cosine_similarity</span>
+
+<span class="c1"># Average the embeddings of all documents in each target label</span>
+<span class="n">df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">hstack</span><span class="p">([</span><span class="n">train_embeddings</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="s2">"train"</span><span class="p">][</span><span class="s2">"label"</span><span class="p">])</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">)]))</span>
+<span class="n">averaged_target_embeddings</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">groupby</span><span class="p">(</span><span class="mi">768</span><span class="p">)</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span><span class="o">.</span><span class="n">values</span>
+
+<span class="c1"># Find the best matching embeddings between evaluation documents and target embeddings</span>
+<span class="n">sim_matrix</span> <span class="o">=</span> <span class="n">cosine_similarity</span><span class="p">(</span><span class="n">test_embeddings</span><span class="p">,</span> <span class="n">averaged_target_embeddings</span><span class="p">)</span>
+<span class="n">y_pred</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argmax</span><span class="p">(</span><span class="n">sim_matrix</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+
+<span class="c1"># Evaluate the model</span>
+<span class="n">evaluate_performance</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="s2">"test"</span><span class="p">][</span><span class="s2">"label"</span><span class="p">],</span> <span class="n">y_pred</span><span class="p">)</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">                 precision    recall  f1-score   support
+
+Negative Review       0.85      0.84      0.84       533
+Positive Review       0.84      0.85      0.84       533
+
+       accuracy                           0.84      1066
+      macro avg       0.84      0.84      0.84      1066
+   weighted avg       0.84      0.84      0.84      1066
+
+</pre></div></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h3>Zero-shot Classification</h3></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Create embeddings for our labels</span>
+<span class="n">label_embeddings</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">encode</span><span class="p">([</span><span class="s2">"A negative review"</span><span class="p">,</span>  <span class="s2">"A positive review"</span><span class="p">])</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.metrics.pairwise</span><span class="w"> </span><span class="kn">import</span> <span class="n">cosine_similarity</span>
+
+<span class="c1"># Find the best matching label for each document</span>
+<span class="n">sim_matrix</span> <span class="o">=</span> <span class="n">cosine_similarity</span><span class="p">(</span><span class="n">test_embeddings</span><span class="p">,</span> <span class="n">label_embeddings</span><span class="p">)</span>
+<span class="n">y_pred</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argmax</span><span class="p">(</span><span class="n">sim_matrix</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="n">evaluate_performance</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="s2">"test"</span><span class="p">][</span><span class="s2">"label"</span><span class="p">],</span> <span class="n">y_pred</span><span class="p">)</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">                 precision    recall  f1-score   support
+
+Negative Review       0.78      0.77      0.78       533
+Positive Review       0.77      0.79      0.78       533
+
+       accuracy                           0.78      1066
+      macro avg       0.78      0.78      0.78      1066
+   weighted avg       0.78      0.78      0.78      1066
+
+</pre></div></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><p><strong>Tip!</strong>  </p>
+<p>What would happen if you were to use different descriptions? Use <strong>"A very negative movie review"</strong> and <strong>"A very positive movie review"</strong> to see what happens!</p></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h2><strong>Classification with Generative Models</strong></h2></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h3>Encoder-decoder Models</h3></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Load our model</span>
+<span class="n">pipe</span> <span class="o">=</span> <span class="n">pipeline</span><span class="p">(</span>
+    <span class="s2">"text2text-generation"</span><span class="p">,</span>
+    <span class="n">model</span><span class="o">=</span><span class="s2">"google/flan-t5-small"</span><span class="p">,</span>
+    <span class="n">device</span><span class="o">=</span><span class="s2">"cuda:0"</span>
+<span class="p">)</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Prepare our data</span>
+<span class="n">prompt</span> <span class="o">=</span> <span class="s2">"Is the following sentence positive or negative? "</span>
+<span class="n">data</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="k">lambda</span> <span class="n">example</span><span class="p">:</span> <span class="p">{</span><span class="s2">"t5"</span><span class="p">:</span> <span class="n">prompt</span> <span class="o">+</span> <span class="n">example</span><span class="p">[</span><span class="s1">'text'</span><span class="p">]})</span>
+<span class="n">data</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">DatasetDict({
+    train: Dataset({
+        features: [&#x27;text&#x27;, &#x27;label&#x27;, &#x27;t5&#x27;],
+        num_rows: 8530
+    })
+    validation: Dataset({
+        features: [&#x27;text&#x27;, &#x27;label&#x27;, &#x27;t5&#x27;],
+        num_rows: 1066
+    })
+    test: Dataset({
+        features: [&#x27;text&#x27;, &#x27;label&#x27;, &#x27;t5&#x27;],
+        num_rows: 1066
+    })
+})</pre></div></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Run inference</span>
+<span class="n">y_pred</span> <span class="o">=</span> <span class="p">[]</span>
+<span class="k">for</span> <span class="n">output</span> <span class="ow">in</span> <span class="n">tqdm</span><span class="p">(</span><span class="n">pipe</span><span class="p">(</span><span class="n">KeyDataset</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="s2">"test"</span><span class="p">],</span> <span class="s2">"t5"</span><span class="p">)),</span> <span class="n">total</span><span class="o">=</span><span class="nb">len</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="s2">"test"</span><span class="p">])):</span>
+    <span class="n">text</span> <span class="o">=</span> <span class="n">output</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s2">"generated_text"</span><span class="p">]</span>
+    <span class="n">y_pred</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="mi">0</span> <span class="k">if</span> <span class="n">text</span> <span class="o">==</span> <span class="s2">"negative"</span> <span class="k">else</span> <span class="mi">1</span><span class="p">)</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stderr">
+  0%|          | 0/1066 [00:00&lt;?, ?it/s]/usr/local/lib/python3.10/dist-packages/transformers/generation/utils.py:1178: UserWarning: Using the model-agnostic default `max_length` (=20) to control the generation length. We recommend setting `max_new_tokens` to control the maximum length of the generation.
+  warnings.warn(
+100%|██████████| 1066/1066 [00:40&lt;00:00, 26.07it/s]
+</pre></div></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="n">evaluate_performance</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="s2">"test"</span><span class="p">][</span><span class="s2">"label"</span><span class="p">],</span> <span class="n">y_pred</span><span class="p">)</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">                 precision    recall  f1-score   support
+
+Negative Review       0.83      0.85      0.84       533
+Positive Review       0.85      0.83      0.84       533
+
+       accuracy                           0.84      1066
+      macro avg       0.84      0.84      0.84      1066
+   weighted avg       0.84      0.84      0.84      1066
+
+</pre></div></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h3>ChatGPT for Classification</h3></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">openai</span>
+
+<span class="c1"># Create client</span>
+<span class="n">client</span> <span class="o">=</span> <span class="n">openai</span><span class="o">.</span><span class="n">OpenAI</span><span class="p">(</span><span class="n">api_key</span><span class="o">=</span><span class="s2">"YOUR_KEY_HERE"</span><span class="p">)</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">chatgpt_generation</span><span class="p">(</span><span class="n">prompt</span><span class="p">,</span> <span class="n">document</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="s2">"gpt-3.5-turbo-0125"</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""Generate an output based on a prompt and an input document."""</span>
+    <span class="n">messages</span><span class="o">=</span><span class="p">[</span>
+        <span class="p">{</span>
+            <span class="s2">"role"</span><span class="p">:</span> <span class="s2">"system"</span><span class="p">,</span>
+            <span class="s2">"content"</span><span class="p">:</span> <span class="s2">"You are a helpful assistant."</span>
+            <span class="p">},</span>
+        <span class="p">{</span>
+            <span class="s2">"role"</span><span class="p">:</span> <span class="s2">"user"</span><span class="p">,</span>
+            <span class="s2">"content"</span><span class="p">:</span>   <span class="n">prompt</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s2">"[DOCUMENT]"</span><span class="p">,</span> <span class="n">document</span><span class="p">)</span>
+            <span class="p">}</span>
+    <span class="p">]</span>
+    <span class="n">chat_completion</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">chat</span><span class="o">.</span><span class="n">completions</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
+      <span class="n">messages</span><span class="o">=</span><span class="n">messages</span><span class="p">,</span>
+      <span class="n">model</span><span class="o">=</span><span class="n">model</span><span class="p">,</span>
+      <span class="n">temperature</span><span class="o">=</span><span class="mi">0</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">chat_completion</span><span class="o">.</span><span class="n">choices</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">content</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Define a prompt template as a base</span>
+<span class="n">prompt</span> <span class="o">=</span> <span class="s2">"""Predict whether the following document is a positive or negative movie review:</span>
+
+<span class="s2">[DOCUMENT]</span>
+
+<span class="s2">If it is positive return 1 and if it is negative return 0. Do not give any other answers.</span>
+<span class="s2">"""</span>
+
+<span class="c1"># Predict the target using GPT</span>
+<span class="n">document</span> <span class="o">=</span> <span class="s2">"unpretentious , charming , quirky , original"</span>
+<span class="n">chatgpt_generation</span><span class="p">(</span><span class="n">prompt</span><span class="p">,</span> <span class="n">document</span><span class="p">)</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">&#x27;1&#x27;</pre></div></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><p>The next step would be to run one of OpenAI's model against the entire evaluation dataset. However, only run this when you have sufficient tokens as this will call the API for the entire test dataset (1066 records).</p></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># You can skip this if you want to save your (free) credits</span>
+<span class="n">predictions</span> <span class="o">=</span> <span class="p">[</span><span class="n">chatgpt_generation</span><span class="p">(</span><span class="n">prompt</span><span class="p">,</span> <span class="n">doc</span><span class="p">)</span> <span class="k">for</span> <span class="n">doc</span> <span class="ow">in</span> <span class="n">tqdm</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="s2">"test"</span><span class="p">][</span><span class="s2">"text"</span><span class="p">])]</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stderr">100%|██████████| 1066/1066 [13:34&lt;00:00,  1.31it/s]
+</pre></div></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Extract predictions</span>
+<span class="n">y_pred</span> <span class="o">=</span> <span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">pred</span><span class="p">)</span> <span class="k">for</span> <span class="n">pred</span> <span class="ow">in</span> <span class="n">predictions</span><span class="p">]</span>
+
+<span class="c1"># Evaluate performance</span>
+<span class="n">evaluate_performance</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="s2">"test"</span><span class="p">][</span><span class="s2">"label"</span><span class="p">],</span> <span class="n">y_pred</span><span class="p">)</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">                 precision    recall  f1-score   support
+
+Negative Review       0.87      0.97      0.92       533
+Positive Review       0.96      0.86      0.91       533
+
+       accuracy                           0.91      1066
+      macro avg       0.92      0.91      0.91      1066
+   weighted avg       0.92      0.91      0.91      1066
+
+</pre></div></div></article><nav class="endnav" aria-label="章节底部导航"><a class="endlink" href="03.html" rel="prev"><span class="endk">上一章</span><span class="endt">Looking Inside Transformer LLMs</span></a><a class="endlink next" href="05.html" rel="next"><span class="endk">下一章</span><span class="endt">Text Clustering and Topic Modeling</span></a></nav><p class="sourcerow"><a href="https://github.com/HandsOnLLM/Hands-On-Large-Language-Models/blob/main/chapter04/Chapter%204%20-%20Text%20Classification.ipynb">上游笔记本源文件</a></p>
+</main>
+
+<footer class="site-footer">
+  <p>笔记本 © 2024 Jay Alammar &amp; Maarten Grootendorst，Apache-2.0。本阅读界面由 mate-matt 制作，是上游仓库的衍生排版，不改笔记本正文。</p>
+  <p>上游提交 <a href="https://github.com/HandsOnLLM/Hands-On-Large-Language-Models/commit/ea3390819997999a51983677b80b3aac4dc50ada">ea33908</a>
+  · <a href="../LICENSE">Apache-2.0</a>
+  · <a href="../NOTICE">NOTICE</a>
+  · <a href="https://github.com/HandsOnLLM/Hands-On-Large-Language-Models">上游仓库</a>
+  · <a href="https://github.com/mate-matt/hands-on-llm-reader">本仓库</a>
+  · <a href="../bonus/index.html">延伸阅读</a></p>
+</footer>
+
+</div>
+<noscript><p class="noscript-note shell">阅读进度存在这台浏览器里，需要 JavaScript。正文、代码和图片不依赖脚本。Plotly 图需要脚本才能画出来。</p></noscript>
+<script src="../js/reader.js"></script>
+</body>
+</html>

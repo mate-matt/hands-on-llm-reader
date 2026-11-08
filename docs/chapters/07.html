@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="format-detection" content="telephone=no">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#fbf9f6">
+<meta name="description" content="个人笔记本阅读镜像，不是 Hands-On Large Language Models 全书。内容来自 Apache-2.0 开源仓库。">
+<title>第 7 章 · Advanced Text Generation Techniques and Tools</title>
+<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../css/pygments.css">
+<link rel="stylesheet" href="../css/reader.css">
+</head>
+<body data-chapter="07">
+<a class="skip" href="#content">跳到正文</a>
+<header class="topbar">
+  <div class="shell topbar-inner">
+    <a class="brand" href="../index.html">Hands-On LLM 笔记</a>
+    <nav class="chrome" aria-label="阅读导航"><a href="../index.html" >目录</a><a href="06.html" rel="prev">上一章</a><a href="08.html" rel="next">下一章</a><a href="https://colab.research.google.com/github/HandsOnLLM/Hands-On-Large-Language-Models/blob/main/chapter07/Chapter%207%20-%20Advanced%20Text%20Generation%20Techniques%20and%20Tools.ipynb" class="colab">在 Colab 打开</a><button type="button" data-done="07" aria-pressed="false">标为已读</button></nav>
+  </div>
+  <div class="scrollline" aria-hidden="true"><span id="scrollline"></span></div>
+</header>
+<div class="shell page">
+<main id="content">
+<p class="disclaimer"><strong>笔记本镜像，不是全书。</strong> 这是开源笔记仓库的个人阅读页，只收录 Apache-2.0 许可的 Jupyter 笔记本、bonus 简介，以及这些文件里原有的图片。不包括 O’Reilly 书的正文、未随仓库发布的插图或 PDF。 <a href="https://www.amazon.com/Hands-Large-Language-Models-Understanding/dp/1098150961">购买本书</a> · <a href="https://www.oreilly.com/library/view/hands-on-large-language/9781098150952/">O’Reilly</a> · <a href="https://github.com/HandsOnLLM/Hands-On-Large-Language-Models">上游 GitHub</a></p><p class="resume"><a href="#content" id="resume" hidden>回到上次位置</a></p><article class="cell cell-md"><div class="markdown" lang="en"><h1>Chapter 7 - Advanced Text Generation Techniques and Tools</h1>
+<p><i>Going beyond prompt engineering.</i></p>
+<p><a class="text-badge badge-buy" href="https://www.amazon.com/Hands-Large-Language-Models-Understanding/dp/1098150961" target="_blank" rel="noopener noreferrer">Buy the Book</a>
+<a class="text-badge badge-oreilly" href="https://www.oreilly.com/library/view/hands-on-large-language/9781098150952/" target="_blank" rel="noopener noreferrer">O&#x27;Reilly</a>
+<a class="text-badge badge-github" href="https://github.com/HandsOnLLM/Hands-On-Large-Language-Models" target="_blank" rel="noopener noreferrer">GitHub Repository</a>
+<a href="https://colab.research.google.com/github/HandsOnLLM/Hands-On-Large-Language-Models/blob/main/chapter07/Chapter%207%20-%20Advanced%20Text%20Generation%20Techniques%20and%20Tools.ipynb" target="_blank" rel="noopener noreferrer"><img class="inline-badge" alt="Open In Colab" src="../assets/colab-badge.svg"></a></p>
+<hr>
+<p>This notebook is for Chapter 7 of the <a href="https://www.amazon.com/Hands-Large-Language-Models-Understanding/dp/1098150961" target="_blank" rel="noopener noreferrer">Hands-On Large Language Models</a> book by <a href="https://www.linkedin.com/in/jalammar" target="_blank" rel="noopener noreferrer">Jay Alammar</a> and <a href="https://www.linkedin.com/in/mgrootendorst/" target="_blank" rel="noopener noreferrer">Maarten Grootendorst</a>.</p>
+<hr>
+<p><a href="https://www.amazon.com/Hands-Large-Language-Models-Understanding/dp/1098150961" target="_blank" rel="noopener noreferrer">
+<img class="figure" src="../images/book_cover.png" width="350" alt="Hands-On Large Language Models book cover"></a></p></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h3>[OPTIONAL] - Installing Packages on <img class="inline-badge" src="../assets/colab-icon.png" width=100 alt="Google Colab"></h3>
+<p>If you are viewing this notebook on Google Colab (or any other cloud vendor), you need to <strong>uncomment and run</strong> the following codeblock to install the dependencies for this chapter:</p>
+<hr>
+<p>💡 <strong>NOTE</strong>: We will want to use a GPU to run the examples in this notebook. In Google Colab, go to
+<strong>Runtime &gt; Change runtime type &gt; Hardware accelerator &gt; GPU &gt; GPU type &gt; T4</strong>.</p>
+<hr></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># %%capture</span>
+<span class="c1"># !pip install langchain&gt;=0.1.17 openai&gt;=1.13.3 langchain_openai&gt;=0.1.6 transformers&gt;=4.40.1 datasets&gt;=2.18.0 accelerate&gt;=0.27.2 sentence-transformers&gt;=2.5.1 duckduckgo-search&gt;=5.2.2 langchain_community</span>
+<span class="c1"># !CMAKE_ARGS="-DLLAMA_CUDA=on" pip install llama-cpp-python==0.2.69</span>
+</pre></div>
+</article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h1>Loading an LLM</h1></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="err">!</span><span class="n">wget</span> <span class="n">https</span><span class="p">:</span><span class="o">//</span><span class="n">huggingface</span><span class="o">.</span><span class="n">co</span><span class="o">/</span><span class="n">microsoft</span><span class="o">/</span><span class="n">Phi</span><span class="o">-</span><span class="mi">3</span><span class="o">-</span><span class="n">mini</span><span class="o">-</span><span class="mi">4</span><span class="n">k</span><span class="o">-</span><span class="n">instruct</span><span class="o">-</span><span class="n">gguf</span><span class="o">/</span><span class="n">resolve</span><span class="o">/</span><span class="n">main</span><span class="o">/</span><span class="n">Phi</span><span class="o">-</span><span class="mi">3</span><span class="o">-</span><span class="n">mini</span><span class="o">-</span><span class="mi">4</span><span class="n">k</span><span class="o">-</span><span class="n">instruct</span><span class="o">-</span><span class="n">fp16</span><span class="o">.</span><span class="n">gguf</span>
+
+<span class="c1"># If this command does not work for you, you can use the link directly to download the model</span>
+<span class="c1"># https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-fp16.gguf</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">langchain</span><span class="w"> </span><span class="kn">import</span> <span class="n">LlamaCpp</span>
+
+<span class="c1"># Make sure the model path is correct for your system!</span>
+<span class="n">llm</span> <span class="o">=</span> <span class="n">LlamaCpp</span><span class="p">(</span>
+    <span class="n">model_path</span><span class="o">=</span><span class="s2">"Phi-3-mini-4k-instruct-fp16.gguf"</span><span class="p">,</span>
+    <span class="n">n_gpu_layers</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">max_tokens</span><span class="o">=</span><span class="mi">500</span><span class="p">,</span>
+    <span class="n">n_ctx</span><span class="o">=</span><span class="mi">2048</span><span class="p">,</span>
+    <span class="n">seed</span><span class="o">=</span><span class="mi">42</span><span class="p">,</span>
+    <span class="n">verbose</span><span class="o">=</span><span class="kc">False</span>
+<span class="p">)</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="n">llm</span><span class="o">.</span><span class="n">invoke</span><span class="p">(</span><span class="s2">"Hi! My name is Maarten. What is 1 + 1?"</span><span class="p">)</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">&#x27;&#x27;</pre></div></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h3>Chains</h3></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">langchain</span><span class="w"> </span><span class="kn">import</span> <span class="n">PromptTemplate</span>
+
+<span class="c1"># Create a prompt template with the "input_prompt" variable</span>
+<span class="n">template</span> <span class="o">=</span> <span class="s2">"""&lt;s&gt;&lt;|user|&gt;</span>
+<span class="si">{input_prompt}</span><span class="s2">&lt;|end|&gt;</span>
+<span class="s2">&lt;|assistant|&gt;"""</span>
+<span class="n">prompt</span> <span class="o">=</span> <span class="n">PromptTemplate</span><span class="p">(</span>
+    <span class="n">template</span><span class="o">=</span><span class="n">template</span><span class="p">,</span>
+    <span class="n">input_variables</span><span class="o">=</span><span class="p">[</span><span class="s2">"input_prompt"</span><span class="p">]</span>
+<span class="p">)</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="n">basic_chain</span> <span class="o">=</span> <span class="n">prompt</span> <span class="o">|</span> <span class="n">llm</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Use the chain</span>
+<span class="n">basic_chain</span><span class="o">.</span><span class="n">invoke</span><span class="p">(</span>
+    <span class="p">{</span>
+        <span class="s2">"input_prompt"</span><span class="p">:</span> <span class="s2">"Hi! My name is Maarten. What is 1 + 1?"</span><span class="p">,</span>
+    <span class="p">}</span>
+<span class="p">)</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">&#x27; Hello Maarten, the answer to 1 + 1 is 2.&#x27;</pre></div></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h3>Multiple Chains</h3></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">langchain</span><span class="w"> </span><span class="kn">import</span> <span class="n">LLMChain</span>
+
+<span class="c1"># Create a chain for the title of our story</span>
+<span class="n">template</span> <span class="o">=</span> <span class="s2">"""&lt;s&gt;&lt;|user|&gt;</span>
+<span class="s2">Create a title for a story about </span><span class="si">{summary}</span><span class="s2">. Only return the title.&lt;|end|&gt;</span>
+<span class="s2">&lt;|assistant|&gt;"""</span>
+<span class="n">title_prompt</span> <span class="o">=</span> <span class="n">PromptTemplate</span><span class="p">(</span><span class="n">template</span><span class="o">=</span><span class="n">template</span><span class="p">,</span> <span class="n">input_variables</span><span class="o">=</span><span class="p">[</span><span class="s2">"summary"</span><span class="p">])</span>
+<span class="n">title</span> <span class="o">=</span> <span class="n">LLMChain</span><span class="p">(</span><span class="n">llm</span><span class="o">=</span><span class="n">llm</span><span class="p">,</span> <span class="n">prompt</span><span class="o">=</span><span class="n">title_prompt</span><span class="p">,</span> <span class="n">output_key</span><span class="o">=</span><span class="s2">"title"</span><span class="p">)</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stderr">/usr/local/lib/python3.10/dist-packages/langchain_core/_api/deprecation.py:141: LangChainDeprecationWarning: The class `LLMChain` was deprecated in LangChain 0.1.17 and will be removed in 1.0. Use RunnableSequence, e.g., `prompt | llm` instead.
+  warn_deprecated(
+</pre></div></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="n">title</span><span class="o">.</span><span class="n">invoke</span><span class="p">({</span><span class="s2">"summary"</span><span class="p">:</span> <span class="s2">"a girl that lost her mother"</span><span class="p">})</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">{&#x27;summary&#x27;: &#x27;a girl that lost her mother&#x27;,
+ &#x27;title&#x27;: &#x27; &quot;Whispers of Love: A Journey Through Grief&quot;&#x27;}</pre></div></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Create a chain for the character description using the summary and title</span>
+<span class="n">template</span> <span class="o">=</span> <span class="s2">"""&lt;s&gt;&lt;|user|&gt;</span>
+<span class="s2">Describe the main character of a story about </span><span class="si">{summary}</span><span class="s2"> with the title </span><span class="si">{title}</span><span class="s2">. Use only two sentences.&lt;|end|&gt;</span>
+<span class="s2">&lt;|assistant|&gt;"""</span>
+<span class="n">character_prompt</span> <span class="o">=</span> <span class="n">PromptTemplate</span><span class="p">(</span>
+    <span class="n">template</span><span class="o">=</span><span class="n">template</span><span class="p">,</span> <span class="n">input_variables</span><span class="o">=</span><span class="p">[</span><span class="s2">"summary"</span><span class="p">,</span> <span class="s2">"title"</span><span class="p">]</span>
+<span class="p">)</span>
+<span class="n">character</span> <span class="o">=</span> <span class="n">LLMChain</span><span class="p">(</span><span class="n">llm</span><span class="o">=</span><span class="n">llm</span><span class="p">,</span> <span class="n">prompt</span><span class="o">=</span><span class="n">character_prompt</span><span class="p">,</span> <span class="n">output_key</span><span class="o">=</span><span class="s2">"character"</span><span class="p">)</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Create a chain for the story using the summary, title, and character description</span>
+<span class="n">template</span> <span class="o">=</span> <span class="s2">"""&lt;s&gt;&lt;|user|&gt;</span>
+<span class="s2">Create a story about </span><span class="si">{summary}</span><span class="s2"> with the title </span><span class="si">{title}</span><span class="s2">. The main charachter is: </span><span class="si">{character}</span><span class="s2">. Only return the story and it cannot be longer than one paragraph&lt;|end|&gt;</span>
+<span class="s2">&lt;|assistant|&gt;"""</span>
+<span class="n">story_prompt</span> <span class="o">=</span> <span class="n">PromptTemplate</span><span class="p">(</span>
+    <span class="n">template</span><span class="o">=</span><span class="n">template</span><span class="p">,</span> <span class="n">input_variables</span><span class="o">=</span><span class="p">[</span><span class="s2">"summary"</span><span class="p">,</span> <span class="s2">"title"</span><span class="p">,</span> <span class="s2">"character"</span><span class="p">]</span>
+<span class="p">)</span>
+<span class="n">story</span> <span class="o">=</span> <span class="n">LLMChain</span><span class="p">(</span><span class="n">llm</span><span class="o">=</span><span class="n">llm</span><span class="p">,</span> <span class="n">prompt</span><span class="o">=</span><span class="n">story_prompt</span><span class="p">,</span> <span class="n">output_key</span><span class="o">=</span><span class="s2">"story"</span><span class="p">)</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Combine all three components to create the full chain</span>
+<span class="n">llm_chain</span> <span class="o">=</span> <span class="n">title</span> <span class="o">|</span> <span class="n">character</span> <span class="o">|</span> <span class="n">story</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="n">llm_chain</span><span class="o">.</span><span class="n">invoke</span><span class="p">(</span><span class="s2">"a girl that lost her mother"</span><span class="p">)</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">{&#x27;summary&#x27;: &#x27;a girl that lost her mother&#x27;,
+ &#x27;title&#x27;: &#x27; &quot;In Loving Memory: A Journey Through Grief&quot;&#x27;,
+ &#x27;character&#x27;: &#x27; The protagonist, Emily, is a resilient young girl who struggles to cope with her overwhelming grief after losing her beloved and caring mother at an early age. As she embarks on a journey of self-discovery and healing, she learns valuable life lessons from the memories and wisdom shared by those around her.&#x27;,
+ &#x27;story&#x27;: &quot; In Loving Memory: A Journey Through Grief revolves around Emily, a resilient young girl who loses her beloved mother at an early age. Struggling to cope with overwhelming grief, she embarks on a journey of self-discovery and healing, drawing strength from the cherished memories and wisdom shared by those around her. Through this transformative process, Emily learns valuable life lessons about resilience, love, and the power of human connection, ultimately finding solace in honoring her mother&#x27;s legacy while embracing a newfound sense of inner peace amidst the painful loss.&quot;}</pre></div></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h1>Memory</h1></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Let's give the LLM our name</span>
+<span class="n">basic_chain</span><span class="o">.</span><span class="n">invoke</span><span class="p">({</span><span class="s2">"input_prompt"</span><span class="p">:</span> <span class="s2">"Hi! My name is Maarten. What is 1 + 1?"</span><span class="p">})</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">&#x27; Hello Maarten! The answer to 1 + 1 is 2.&#x27;</pre></div></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Next, we ask the LLM to reproduce the name</span>
+<span class="n">basic_chain</span><span class="o">.</span><span class="n">invoke</span><span class="p">({</span><span class="s2">"input_prompt"</span><span class="p">:</span> <span class="s2">"What is my name?"</span><span class="p">})</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">&quot; I&#x27;m unable to determine your name as I don&#x27;t have the capability to access personal data. If you provide context or information where this question might be relevant, I could assist you further within appropriate guidelines!&quot;</pre></div></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h2>ConversationBuffer</h2></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Create an updated prompt template to include a chat history</span>
+<span class="n">template</span> <span class="o">=</span> <span class="s2">"""&lt;s&gt;&lt;|user|&gt;Current conversation:</span><span class="si">{chat_history}</span>
+
+<span class="si">{input_prompt}</span><span class="s2">&lt;|end|&gt;</span>
+<span class="s2">&lt;|assistant|&gt;"""</span>
+
+<span class="n">prompt</span> <span class="o">=</span> <span class="n">PromptTemplate</span><span class="p">(</span>
+    <span class="n">template</span><span class="o">=</span><span class="n">template</span><span class="p">,</span>
+    <span class="n">input_variables</span><span class="o">=</span><span class="p">[</span><span class="s2">"input_prompt"</span><span class="p">,</span> <span class="s2">"chat_history"</span><span class="p">]</span>
+<span class="p">)</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">langchain.memory</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConversationBufferMemory</span>
+
+<span class="c1"># Define the type of Memory we will use</span>
+<span class="n">memory</span> <span class="o">=</span> <span class="n">ConversationBufferMemory</span><span class="p">(</span><span class="n">memory_key</span><span class="o">=</span><span class="s2">"chat_history"</span><span class="p">)</span>
+
+<span class="c1"># Chain the LLM, Prompt, and Memory together</span>
+<span class="n">llm_chain</span> <span class="o">=</span> <span class="n">LLMChain</span><span class="p">(</span>
+    <span class="n">prompt</span><span class="o">=</span><span class="n">prompt</span><span class="p">,</span>
+    <span class="n">llm</span><span class="o">=</span><span class="n">llm</span><span class="p">,</span>
+    <span class="n">memory</span><span class="o">=</span><span class="n">memory</span>
+<span class="p">)</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Generate a conversation and ask a basic question</span>
+<span class="n">llm_chain</span><span class="o">.</span><span class="n">invoke</span><span class="p">({</span><span class="s2">"input_prompt"</span><span class="p">:</span> <span class="s2">"Hi! My name is Maarten. What is 1 + 1?"</span><span class="p">})</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">{&#x27;input_prompt&#x27;: &#x27;Hi! My name is Maarten. What is 1 + 1?&#x27;,
+ &#x27;chat_history&#x27;: &#x27;&#x27;,
+ &#x27;text&#x27;: &quot; Hello Maarten! The answer to 1 + 1 is 2. Hope you&#x27;re having a great day!&quot;}</pre></div></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Does the LLM remember the name we gave it?</span>
+<span class="n">llm_chain</span><span class="o">.</span><span class="n">invoke</span><span class="p">({</span><span class="s2">"input_prompt"</span><span class="p">:</span> <span class="s2">"What is my name?"</span><span class="p">})</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">{&#x27;input_prompt&#x27;: &#x27;What is my name?&#x27;,
+ &#x27;chat_history&#x27;: &quot;Human: Hi! My name is Maarten. What is 1 + 1?\nAI:  Hello Maarten! The answer to 1 + 1 is 2. Hope you&#x27;re having a great day!&quot;,
+ &#x27;text&#x27;: &#x27; Your name is Maarten.&#x27;}</pre></div></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h2>ConversationBufferMemoryWindow</h2></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">langchain.memory</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConversationBufferWindowMemory</span>
+
+<span class="c1"># Retain only the last 2 conversations in memory</span>
+<span class="n">memory</span> <span class="o">=</span> <span class="n">ConversationBufferWindowMemory</span><span class="p">(</span><span class="n">k</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">memory_key</span><span class="o">=</span><span class="s2">"chat_history"</span><span class="p">)</span>
+
+<span class="c1"># Chain the LLM, Prompt, and Memory together</span>
+<span class="n">llm_chain</span> <span class="o">=</span> <span class="n">LLMChain</span><span class="p">(</span>
+    <span class="n">prompt</span><span class="o">=</span><span class="n">prompt</span><span class="p">,</span>
+    <span class="n">llm</span><span class="o">=</span><span class="n">llm</span><span class="p">,</span>
+    <span class="n">memory</span><span class="o">=</span><span class="n">memory</span>
+<span class="p">)</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Ask two questions and generate two conversations in its memory</span>
+<span class="n">llm_chain</span><span class="o">.</span><span class="n">invoke</span><span class="p">({</span><span class="s2">"input_prompt"</span><span class="p">:</span><span class="s2">"Hi! My name is Maarten and I am 33 years old. What is 1 + 1?"</span><span class="p">})</span>
+<span class="n">llm_chain</span><span class="o">.</span><span class="n">invoke</span><span class="p">({</span><span class="s2">"input_prompt"</span><span class="p">:</span><span class="s2">"What is 3 + 3?"</span><span class="p">})</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">{&#x27;input_prompt&#x27;: &#x27;What is 3 + 3?&#x27;,
+ &#x27;chat_history&#x27;: &quot;Human: Hi! My name is Maarten and I am 33 years old. What is 1 + 1?\nAI:  Hello Maarten, it&#x27;s nice to meet you! The answer to 1 + 1 is 2.\n\nHowever, if you have any other questions or need further assistance, feel free to ask!&quot;,
+ &#x27;text&#x27;: &quot; Hello again! 3 + 3 equals 6. If there&#x27;s anything else I can help you with, just let me know!&quot;}</pre></div></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Check whether it knows the name we gave it</span>
+<span class="n">llm_chain</span><span class="o">.</span><span class="n">invoke</span><span class="p">({</span><span class="s2">"input_prompt"</span><span class="p">:</span><span class="s2">"What is my name?"</span><span class="p">})</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">{&#x27;input_prompt&#x27;: &#x27;What is my name?&#x27;,
+ &#x27;chat_history&#x27;: &quot;Human: Hi! My name is Maarten and I am 33 years old. What is 1 + 1?\nAI:  Hello Maarten, it&#x27;s nice to meet you! The answer to 1 + 1 is 2.\n\nHowever, if you have any other questions or need further assistance, feel free to ask!\nHuman: What is 3 + 3?\nAI:  Hello again! 3 + 3 equals 6. If there&#x27;s anything else I can help you with, just let me know!&quot;,
+ &#x27;text&#x27;: &#x27; Your name is Maarten.&#x27;}</pre></div></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Check whether it knows the age we gave it</span>
+<span class="n">llm_chain</span><span class="o">.</span><span class="n">invoke</span><span class="p">({</span><span class="s2">"input_prompt"</span><span class="p">:</span><span class="s2">"What is my age?"</span><span class="p">})</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">{&#x27;input_prompt&#x27;: &#x27;What is my age?&#x27;,
+ &#x27;chat_history&#x27;: &quot;Human: What is 3 + 3?\nAI:  Hello again! 3 + 3 equals 6. If there&#x27;s anything else I can help you with, just let me know!\nHuman: What is my name?\nAI:  Your name is Maarten.&quot;,
+ &#x27;text&#x27;: &quot; I&#x27;m unable to determine your age as I don&#x27;t have access to personal information. Age isn&#x27;t something that can be inferred from our current conversation unless you choose to share it with me. How else may I assist you today?&quot;}</pre></div></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h2>ConversationSummary</h2></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Create a summary prompt template</span>
+<span class="n">summary_prompt_template</span> <span class="o">=</span> <span class="s2">"""&lt;s&gt;&lt;|user|&gt;Summarize the conversations and update with the new lines.</span>
+
+<span class="s2">Current summary:</span>
+<span class="si">{summary}</span>
+
+<span class="s2">new lines of conversation:</span>
+<span class="si">{new_lines}</span>
+
+<span class="s2">New summary:&lt;|end|&gt;</span>
+<span class="s2">&lt;|assistant|&gt;"""</span>
+<span class="n">summary_prompt</span> <span class="o">=</span> <span class="n">PromptTemplate</span><span class="p">(</span>
+    <span class="n">input_variables</span><span class="o">=</span><span class="p">[</span><span class="s2">"new_lines"</span><span class="p">,</span> <span class="s2">"summary"</span><span class="p">],</span>
+    <span class="n">template</span><span class="o">=</span><span class="n">summary_prompt_template</span>
+<span class="p">)</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">langchain.memory</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConversationSummaryMemory</span>
+
+<span class="c1"># Define the type of memory we will use</span>
+<span class="n">memory</span> <span class="o">=</span> <span class="n">ConversationSummaryMemory</span><span class="p">(</span>
+    <span class="n">llm</span><span class="o">=</span><span class="n">llm</span><span class="p">,</span>
+    <span class="n">memory_key</span><span class="o">=</span><span class="s2">"chat_history"</span><span class="p">,</span>
+    <span class="n">prompt</span><span class="o">=</span><span class="n">summary_prompt</span>
+<span class="p">)</span>
+
+<span class="c1"># Chain the LLM, prompt, and memory together</span>
+<span class="n">llm_chain</span> <span class="o">=</span> <span class="n">LLMChain</span><span class="p">(</span>
+    <span class="n">prompt</span><span class="o">=</span><span class="n">prompt</span><span class="p">,</span>
+    <span class="n">llm</span><span class="o">=</span><span class="n">llm</span><span class="p">,</span>
+    <span class="n">memory</span><span class="o">=</span><span class="n">memory</span>
+<span class="p">)</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Generate a conversation and ask for the name</span>
+<span class="n">llm_chain</span><span class="o">.</span><span class="n">invoke</span><span class="p">({</span><span class="s2">"input_prompt"</span><span class="p">:</span> <span class="s2">"Hi! My name is Maarten. What is 1 + 1?"</span><span class="p">})</span>
+<span class="n">llm_chain</span><span class="o">.</span><span class="n">invoke</span><span class="p">({</span><span class="s2">"input_prompt"</span><span class="p">:</span> <span class="s2">"What is my name?"</span><span class="p">})</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">{&#x27;input_prompt&#x27;: &#x27;What is my name?&#x27;,
+ &#x27;chat_history&#x27;: &#x27; Summary: Human, identified as Maarten, asked the AI about the sum of 1 + 1, which was correctly answered by the AI as 2 and offered additional assistance if needed.&#x27;,
+ &#x27;text&#x27;: &#x27; Your name in this context was referred to as &quot;Maarten&quot;. However, since our interaction doesn\&#x27;t retain personal data beyond a single session for privacy reasons, I don\&#x27;t have access to that information. How can I assist you further today?&#x27;}</pre></div></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Check whether it has summarized everything thus far</span>
+<span class="n">llm_chain</span><span class="o">.</span><span class="n">invoke</span><span class="p">({</span><span class="s2">"input_prompt"</span><span class="p">:</span> <span class="s2">"What was the first question I asked?"</span><span class="p">})</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">{&#x27;input_prompt&#x27;: &#x27;What was the first question I asked?&#x27;,
+ &#x27;chat_history&#x27;: &#x27; Summary: Human, identified as Maarten in the context of this conversation, first asked about the sum of 1 + 1 and received an answer of 2 from the AI. Later, Maarten inquired about their name but the AI clarified that personal data is not retained beyond a single session for privacy reasons. The AI offered further assistance if needed.&#x27;,
+ &#x27;text&#x27;: &#x27; The first question you asked was &quot;what\&#x27;s 1 + 1?&quot;&#x27;}</pre></div></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Check what the summary is thus far</span>
+<span class="n">memory</span><span class="o">.</span><span class="n">load_memory_variables</span><span class="p">({})</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">{&#x27;chat_history&#x27;: &#x27; Maarten, identified in this conversation, initially asked about the sum of 1+1 which resulted in an answer from the AI being 2. Subsequently, he sought clarification on his name but the AI informed him that no personal data is retained beyond a single session due to privacy reasons. The AI then offered further assistance if required. Later, Maarten recalled and asked about the first question he inquired which was &quot;what\&#x27;s 1+1?&quot;&#x27;}</pre></div></div></article>
+<article class="cell cell-md"><div class="markdown" lang="en"><h1>Agents</h1></div></article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">langchain_openai</span><span class="w"> </span><span class="kn">import</span> <span class="n">ChatOpenAI</span>
+
+<span class="c1"># Load OpenAI's LLMs with LangChain</span>
+<span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"OPENAI_API_KEY"</span><span class="p">]</span> <span class="o">=</span> <span class="s2">"MY_KEY"</span>
+<span class="n">openai_llm</span> <span class="o">=</span> <span class="n">ChatOpenAI</span><span class="p">(</span><span class="n">model_name</span><span class="o">=</span><span class="s2">"gpt-3.5-turbo"</span><span class="p">,</span> <span class="n">temperature</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># Create the ReAct template</span>
+<span class="n">react_template</span> <span class="o">=</span> <span class="s2">"""Answer the following questions as best you can. You have access to the following tools:</span>
+
+<span class="si">{tools}</span>
+
+<span class="s2">Use the following format:</span>
+
+<span class="s2">Question: the input question you must answer</span>
+<span class="s2">Thought: you should always think about what to do</span>
+<span class="s2">Action: the action to take, should be one of [</span><span class="si">{tool_names}</span><span class="s2">]</span>
+<span class="s2">Action Input: the input to the action</span>
+<span class="s2">Observation: the result of the action</span>
+<span class="s2">... (this Thought/Action/Action Input/Observation can repeat N times)</span>
+<span class="s2">Thought: I now know the final answer</span>
+<span class="s2">Final Answer: the final answer to the original input question</span>
+
+<span class="s2">Begin!</span>
+
+<span class="s2">Question: </span><span class="si">{input}</span>
+<span class="s2">Thought:</span><span class="si">{agent_scratchpad}</span><span class="s2">"""</span>
+
+<span class="n">prompt</span> <span class="o">=</span> <span class="n">PromptTemplate</span><span class="p">(</span>
+    <span class="n">template</span><span class="o">=</span><span class="n">react_template</span><span class="p">,</span>
+    <span class="n">input_variables</span><span class="o">=</span><span class="p">[</span><span class="s2">"tools"</span><span class="p">,</span> <span class="s2">"tool_names"</span><span class="p">,</span> <span class="s2">"input"</span><span class="p">,</span> <span class="s2">"agent_scratchpad"</span><span class="p">]</span>
+<span class="p">)</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">langchain.agents</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_tools</span><span class="p">,</span> <span class="n">Tool</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">langchain.tools</span><span class="w"> </span><span class="kn">import</span> <span class="n">DuckDuckGoSearchResults</span>
+
+<span class="c1"># You can create the tool to pass to an agent</span>
+<span class="n">search</span> <span class="o">=</span> <span class="n">DuckDuckGoSearchResults</span><span class="p">()</span>
+<span class="n">search_tool</span> <span class="o">=</span> <span class="n">Tool</span><span class="p">(</span>
+    <span class="n">name</span><span class="o">=</span><span class="s2">"duckduck"</span><span class="p">,</span>
+    <span class="n">description</span><span class="o">=</span><span class="s2">"A web search engine. Use this to as a search engine for general queries."</span><span class="p">,</span>
+    <span class="n">func</span><span class="o">=</span><span class="n">search</span><span class="o">.</span><span class="n">run</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="c1"># Prepare tools</span>
+<span class="n">tools</span> <span class="o">=</span> <span class="n">load_tools</span><span class="p">([</span><span class="s2">"llm-math"</span><span class="p">],</span> <span class="n">llm</span><span class="o">=</span><span class="n">openai_llm</span><span class="p">)</span>
+<span class="n">tools</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">search_tool</span><span class="p">)</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">langchain.agents</span><span class="w"> </span><span class="kn">import</span> <span class="n">AgentExecutor</span><span class="p">,</span> <span class="n">create_react_agent</span>
+
+<span class="c1"># Construct the ReAct agent</span>
+<span class="n">agent</span> <span class="o">=</span> <span class="n">create_react_agent</span><span class="p">(</span><span class="n">openai_llm</span><span class="p">,</span> <span class="n">tools</span><span class="p">,</span> <span class="n">prompt</span><span class="p">)</span>
+<span class="n">agent_executor</span> <span class="o">=</span> <span class="n">AgentExecutor</span><span class="p">(</span>
+    <span class="n">agent</span><span class="o">=</span><span class="n">agent</span><span class="p">,</span> <span class="n">tools</span><span class="o">=</span><span class="n">tools</span><span class="p">,</span> <span class="n">verbose</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">handle_parsing_errors</span><span class="o">=</span><span class="kc">True</span>
+<span class="p">)</span>
+</pre></div>
+</article>
+<article class="cell cell-code"><p class="cell-label">In</p><div class="codehilite"><pre><span></span><span class="c1"># What is the Price of a MacBook Pro?</span>
+<span class="n">agent_executor</span><span class="o">.</span><span class="n">invoke</span><span class="p">(</span>
+    <span class="p">{</span>
+        <span class="s2">"input"</span><span class="p">:</span> <span class="s2">"What is the current price of a MacBook Pro in USD? How much would it cost in EUR if the exchange rate is 0.85 EUR for 1 USD?"</span>
+    <span class="p">}</span>
+<span class="p">)</span>
+</pre></div>
+<div class="outputs"><div class="scrollbox"><pre class="stream stdout">
+
+&gt; Entering new AgentExecutor chain...
+I need to find the current price of a MacBook Pro in USD first before converting it to EUR.
+Action: duckduck
+Action Input: &quot;current price of MacBook Pro in USD&quot;[snippet: View at Best Buy. The best MacBook Pro overall The MacBook Pro 14-inch with the latest M3-series chips offers outstanding, best-in-class performance while getting fantastic battery life and ..., title: The best MacBook Pro in 2024: our picks for the top Pro models, link: https://www.techradar.com/best/best-macbook-pro], [snippet: Starts at $1,299. Upgradable to 24 GB of memory and 2 TB of storage. 67W USB-C charger included. The M2-powered MacBook Pro is available now for a starting price of $1,299 on Apple&#x27;s website ..., title: MacBook Pro 13-inch (M2, 2022) review | Tom&#x27;s Guide, link: https://www.tomsguide.com/reviews/macbook-pro-13-inch-m2-2022], [snippet: The late-2023 MacBook Pro update also marks the demise of the 13-inch MacBook Pro, which has been replaced by a 14-inch model with the standard M3 chip, unfortunately at a higher price than the ..., title: Best MacBook Pro Deals: March 2024 | Macworld, link: https://www.macworld.com/article/672811/best-macbook-pro-deals.html], [snippet: For the M3 Pro models, prices start at $2,249.00 for the 512GB/18GB RAM 16-inch MacBook Pro and increase to $2,649.00 for the 512GB/36GB RAM model, both of which are all-time low prices., title: Best Buy Introduces All-Time Low Prices on Apple&#x27;s M3 MacBook Pro for ..., link: https://www.macrumors.com/2024/04/01/best-buy-m3-macbook-pro/]I found the current price of a MacBook Pro in USD, now I need to convert it to EUR using the exchange rate.
+Action: Calculator
+Action Input: $2,249.00 * 0.85Answer: 1911.6499999999999I now know the final answer
+Final Answer: The current price of a MacBook Pro in USD is $2,249.00. It would cost approximately 1911.65 EUR with an exchange rate of 0.85 EUR for 1 USD.
+
+&gt; Finished chain.
+</pre></div><div class="scrollbox"><pre class="stream stdout">{&#x27;input&#x27;: &#x27;What is the current price of a MacBook Pro in USD? How much would it cost in EUR if the exchange rate is 0.85 EUR for 1 USD?&#x27;,
+ &#x27;output&#x27;: &#x27;The current price of a MacBook Pro in USD is $2,249.00. It would cost approximately 1911.65 EUR with an exchange rate of 0.85 EUR for 1 USD.&#x27;}</pre></div></div></article><nav class="endnav" aria-label="章节底部导航"><a class="endlink" href="06.html" rel="prev"><span class="endk">上一章</span><span class="endt">Prompt Engineering</span></a><a class="endlink next" href="08.html" rel="next"><span class="endk">下一章</span><span class="endt">Semantic Search and Retrieval-Augmented Generation</span></a></nav><p class="sourcerow"><a href="https://github.com/HandsOnLLM/Hands-On-Large-Language-Models/blob/main/chapter07/Chapter%207%20-%20Advanced%20Text%20Generation%20Techniques%20and%20Tools.ipynb">上游笔记本源文件</a></p>
+</main>
+
+<footer class="site-footer">
+  <p>笔记本 © 2024 Jay Alammar &amp; Maarten Grootendorst，Apache-2.0。本阅读界面由 mate-matt 制作，是上游仓库的衍生排版，不改笔记本正文。</p>
+  <p>上游提交 <a href="https://github.com/HandsOnLLM/Hands-On-Large-Language-Models/commit/ea3390819997999a51983677b80b3aac4dc50ada">ea33908</a>
+  · <a href="../LICENSE">Apache-2.0</a>
+  · <a href="../NOTICE">NOTICE</a>
+  · <a href="https://github.com/HandsOnLLM/Hands-On-Large-Language-Models">上游仓库</a>
+  · <a href="https://github.com/mate-matt/hands-on-llm-reader">本仓库</a>
+  · <a href="../bonus/index.html">延伸阅读</a></p>
+</footer>
+
+</div>
+<noscript><p class="noscript-note shell">阅读进度存在这台浏览器里，需要 JavaScript。正文、代码和图片不依赖脚本。Plotly 图需要脚本才能画出来。</p></noscript>
+<script src="../js/reader.js"></script>
+</body>
+</html>

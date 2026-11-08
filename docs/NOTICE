@@ -1,0 +1,24 @@
+NOTICE
+
+This repository is a derivative reading interface by mate-matt.
+It republishes the Apache-2.0 Jupyter notebooks and bonus markdown stubs
+from the upstream project, converted to static HTML for personal reading.
+It is not the O'Reilly book and does not include the book's prose or PDF.
+
+Upstream:
+  Hands-On Large Language Models (code)
+  Copyright 2024 Jay Alammar & Maarten Grootendorst
+  https://github.com/HandsOnLLM/Hands-On-Large-Language-Models
+  Commit: ea3390819997999a51983677b80b3aac4dc50ada
+  License: Apache License, Version 2.0
+
+Book (not included; please buy it):
+  Jay Alammar and Maarten Grootendorst
+  Hands-On Large Language Models
+  O'Reilly Media, 2024
+  https://www.oreilly.com/library/view/hands-on-large-language/9781098150952/
+  https://www.amazon.com/Hands-Large-Language-Models-Understanding/dp/1098150961
+
+Reading UI:
+  Copyright 2026 mate-matt
+  Licensed under the Apache License, Version 2.0
